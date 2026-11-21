@@ -64,9 +64,10 @@ main#main { min-height: 60vh; position: relative; z-index: 1; }
     radial-gradient(420px 240px at 14% 96%, rgba(229, 243, 238, .75), transparent 74%),
     radial-gradient(360px 220px at 88% 92%, rgba(255, 241, 204, .5), transparent 76%);
 }
-/* The objects alternate between the two window edges on a fixed vertical rhythm, so the density
-   stays even however long a page runs: a longer page simply shows more of them, and a short one
-   stops after a few. Sizes and timings vary by position so they never line up into a grid. */
+/* The objects run down the page on a fixed vertical rhythm: most hug the two window edges, and
+   every few steps one sits in the middle band, so the empty space between sections is not bare.
+   A longer page simply shows more of them, and a short one stops after a few. Sizes and timings
+   vary by position so they never line up into a grid. */
 .pd {
   position: absolute; z-index: 1; width: clamp(44px, 6vw, 74px); height: auto; opacity: .5;
   filter: drop-shadow(0 8px 16px rgba(33, 30, 40, .14));
@@ -77,38 +78,40 @@ main#main { min-height: 60vh; position: relative; z-index: 1; }
 .pd:nth-child(2n) { animation-delay: -3s; }
 .pd:nth-child(5n) { animation-delay: -8.5s; }
 .pd:nth-child(7n) { animation-delay: -4.5s; }
+/* The ones over the middle sit behind copy and controls rather than beside them, so they are
+   smaller and fainter: decoration you notice, never something you have to read through. */
+.pd.pd-mid { width: clamp(30px, 3.6vw, 46px); opacity: .3; }
 .pd-1 { top: 110px; left: 4%; }
 .pd-2 { top: 250px; right: 7%; }
-.pd-3 { top: 390px; left: 2%; }
-.pd-4 { top: 530px; right: 5%; }
-.pd-5 { top: 670px; left: 3%; }
-.pd-6 { top: 810px; right: 6%; }
-.pd-7 { top: 950px; left: 1%; }
-.pd-8 { top: 1090px; right: 8%; }
-.pd-9 { top: 1230px; left: 4%; }
-.pd-10 { top: 1370px; right: 7%; }
-.pd-11 { top: 1510px; left: 2%; }
-.pd-12 { top: 1650px; right: 5%; }
-.pd-13 { top: 1790px; left: 3%; }
-.pd-14 { top: 1930px; right: 6%; }
-.pd-15 { top: 2070px; left: 1%; }
-.pd-16 { top: 2210px; right: 8%; }
-.pd-17 { top: 2350px; left: 4%; }
-.pd-18 { top: 2490px; right: 7%; }
-.pd-19 { top: 2630px; left: 2%; }
-.pd-20 { top: 2770px; right: 5%; }
-.pd-21 { top: 2910px; left: 3%; }
-.pd-22 { top: 3050px; right: 6%; }
-.pd-23 { top: 3190px; left: 1%; }
-.pd-24 { top: 3330px; right: 8%; }
-.pd-25 { top: 3470px; left: 4%; }
-.pd-26 { top: 3610px; right: 7%; }
-.pd-27 { top: 3750px; left: 2%; }
-.pd-28 { top: 3890px; right: 5%; }
-.pd-29 { top: 4030px; left: 3%; }
-.pd-30 { top: 4170px; right: 6%; }
-/* Two pinned to the foot of the layer, so a short page is decorated all the way down too. */
-.pd-31 { bottom: 16%; left: 5%; }
+.pd-3 { top: 390px; left: 30%; }
+.pd-4 { top: 530px; left: 2%; }
+.pd-5 { top: 670px; right: 5%; }
+.pd-6 { top: 810px; left: 3%; }
+.pd-7 { top: 950px; left: 40%; }
+.pd-8 { top: 1090px; right: 6%; }
+.pd-9 { top: 1230px; left: 1%; }
+.pd-10 { top: 1370px; left: 52%; }
+.pd-11 { top: 1510px; right: 8%; }
+.pd-12 { top: 1650px; left: 4%; }
+.pd-13 { top: 1790px; right: 7%; }
+.pd-14 { top: 1930px; left: 63%; }
+.pd-15 { top: 2070px; left: 2%; }
+.pd-16 { top: 2210px; right: 5%; }
+.pd-17 { top: 2350px; left: 3%; }
+.pd-18 { top: 2490px; right: 6%; }
+.pd-19 { top: 2630px; left: 35%; }
+.pd-20 { top: 2770px; left: 1%; }
+.pd-21 { top: 2910px; right: 8%; }
+.pd-22 { top: 3050px; left: 4%; }
+.pd-23 { top: 3190px; left: 46%; }
+.pd-24 { top: 3330px; right: 7%; }
+.pd-25 { top: 3470px; left: 2%; }
+.pd-26 { top: 3610px; left: 58%; }
+.pd-27 { top: 3750px; right: 5%; }
+.pd-28 { top: 3890px; left: 3%; }
+.pd-29 { top: 4030px; right: 6%; }
+.pd-30 { top: 4170px; left: 68%; }
+.pd-31 { bottom: 12%; left: 44%; }
 .pd-32 { bottom: 4%; right: 6%; }
 @keyframes drift { 50% { transform: translateY(-14px) rotate(4deg); } }
 @media (prefers-reduced-motion: reduce) { .pd { animation: none; } }
@@ -435,6 +438,16 @@ body.booted .reveal { animation: reveal-in 420ms var(--ease) forwards; }
 .bubble.typing i:nth-child(2) { animation-delay: .15s; } .bubble.typing i:nth-child(3) { animation-delay: .3s; }
 @keyframes dot { 50% { opacity: 1; transform: translateY(-3px); } }
 .who { display: block; font-size: .78rem; font-weight: 700; opacity: .75; margin-bottom: 2px; }
+/* A photo in a message: a thumbnail in the bubble that opens the full picture. */
+.bubble-pic { display: block; margin: 4px 0 2px; padding: 0; border: 0; background: transparent; border-radius: 12px; overflow: hidden; cursor: zoom-in; line-height: 0; }
+.bubble-img { display: block; max-width: min(260px, 100%); max-height: 260px; width: auto; height: auto; border-radius: 12px; background: var(--paper); }
+.bubble-pic:hover .bubble-img { filter: brightness(.96); }
+.bubble-pic:focus-visible { outline: 3px solid var(--violet); outline-offset: 2px; }
+.bubble-text { display: block; }
+/* The viewer: the picture at its own size, on a dim backdrop, with the shared corner X. */
+.img-dlg { display: grid; gap: 10px; justify-items: center; background: var(--white); padding: 14px; max-width: min(92vw, 900px); }
+.img-dlg img { display: block; max-width: 100%; max-height: 76vh; width: auto; height: auto; border-radius: var(--r-sm); }
+.img-dlg .hint { margin: 0; text-align: center; }
 .when { display: block; font-size: .74rem; opacity: .6; margin-top: 3px; }
 .fcards { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .fcard { display: flex; gap: 12px; align-items: flex-start; background: var(--paper); border-radius: 14px; padding: 10px 14px; border: 1px solid var(--line); font-size: .93rem; }
@@ -444,6 +457,14 @@ body.booted .reveal { animation: reveal-in 420ms var(--ease) forwards; }
 .fnone { color: var(--muted); }
 .ideas { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; align-items: center; }
 .chat-form { display: flex; gap: 10px; margin-top: 4px; align-items: flex-start; }
+/* The photo button and the picture waiting to be sent, both sitting with the message box. */
+.photo-btn { position: relative; min-height: 50px; min-width: 50px; padding: 0; display: inline-grid; place-items: center; flex: none; cursor: pointer; }
+.photo-btn input.sr { min-height: 0; padding: 0; border: 0; flex: none; }
+.attach-preview { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin-bottom: 8px; border: 1.5px solid var(--line); border-radius: var(--r-sm); background: var(--paper); }
+.attach-preview img { width: 54px; height: 54px; object-fit: cover; border-radius: 8px; flex: none; }
+.attach-note { font-size: .84rem; color: var(--muted); }
+.attach-x { margin-left: auto; flex: none; width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--white); color: var(--ink); }
+.attach-x:hover { background: var(--lilac); }
 /* The message box and the command palette above it share one column, so the palette sits exactly
    over the input it belongs to. */
 .chat-input-wrap { position: relative; flex: 1; min-width: 0; display: grid; }
@@ -602,6 +623,26 @@ dialog[open] { position: fixed; animation: cardIn var(--t-mid) var(--ease) both;
 @media (max-width: 520px) { .dlg-floats img:nth-child(2), .dlg-floats img:nth-child(3) { display: none; } }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; position: sticky; bottom: 0; background: var(--white); padding-top: 8px; }
 .dlg-actions.spread { justify-content: space-between; }
+/* A question before something that cannot be undone: a small card, an icon, the question, and the
+   two answers. Never the browser's own confirm box. */
+#askDialog { width: min(430px, calc(100vw - 24px)); }
+.dlg.ask { gap: 14px; text-align: center; justify-items: center; padding: 28px 26px 22px; }
+.ask-badge { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: var(--lilac); color: var(--violet); }
+.ask-badge .ic { width: 24px; height: 24px; }
+.dlg.ask.danger .ask-badge { background: var(--blush); color: var(--brick); }
+.ask-copy { display: grid; gap: 6px; }
+.ask-copy h2 { font-size: 1.28rem; font-weight: 800; letter-spacing: -.02em; }
+.ask-copy p { color: var(--muted); font-size: .95rem; text-wrap: pretty; }
+.ask-actions { justify-content: center; width: 100%; margin-top: 2px; }
+.ask-actions .btn { min-height: 46px; }
+@media (max-width: 420px) {
+  .dlg.ask { padding: 24px 18px 18px; }
+  .ask-actions { flex-direction: column-reverse; }
+  .ask-actions .btn { width: 100%; }
+}
+.btn.danger { background: var(--brick); color: #fff; box-shadow: 0 4px 14px rgba(163, 50, 61, .24); }
+.btn.danger:hover { background: #8E2A34; }
+.btn.danger:active { opacity: .88; }
 /* Signing up, the age check sits in the middle of the same row as the two buttons, centred
    between them, instead of stacking on top of them. The side columns share what is left evenly,
    so the chip is centred on the dialog however wide the button labels are. */
@@ -642,7 +683,16 @@ dialog[open] { position: fixed; animation: cardIn var(--t-mid) var(--ease) both;
 .avatar-btns { display: grid; gap: 6px; }
 .avatar-btns .btn { justify-self: start; }
 .optional { border: 1.5px solid var(--line); border-radius: var(--r-md); padding: 4px 16px 16px; background: var(--paper); display: grid; gap: 14px; }
-.optional summary { min-height: 48px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+/* A folded section has to look folded and clickable: a chevron that turns, a hover tint, and a
+   quiet "open" note next to the title. */
+.optional > summary { min-height: 48px; display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 600; border-radius: 10px; padding: 0 6px; margin: 0 -6px; list-style: none; }
+.optional > summary::-webkit-details-marker { display: none; }
+.optional > summary::after { content: ''; width: 10px; height: 10px; margin-left: auto; border-right: 2.5px solid var(--violet); border-bottom: 2.5px solid var(--violet); transform: rotate(45deg); transition: transform var(--t-fast); }
+.optional[open] > summary::after { transform: rotate(225deg); }
+.optional > summary:hover { background: rgba(89, 56, 181, .07); }
+.optional > summary:focus-visible { outline: 3px solid var(--violet); outline-offset: 2px; }
+.opt-open { font-size: .8rem; font-weight: 600; color: var(--violet); }
+.optional[open] .opt-open { display: none; }
 .goal-quote { background: var(--lilac); border-radius: var(--r-sm); padding: 12px 16px; }
 .goal-quote p { overflow-wrap: anywhere; }
 .gq-label { display: inline-block; font-size: .72rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--violet); margin-right: 6px; }
@@ -672,6 +722,10 @@ body.has-create .help-fab { bottom: calc(100px + env(safe-area-inset-bottom, 0px
 .help-bubble.me { justify-self: end; background: var(--violet); color: #fff; border-bottom-right-radius: 5px; }
 .help-bubble.bot { justify-self: start; background: var(--lilac); color: var(--ink); border-bottom-left-radius: 5px; }
 .help-bubble.bot.wait { color: var(--muted); }
+/* The way to the page an answer names, offered next to it rather than taken for the member. */
+.help-go { display: inline-flex; align-items: center; margin: 6px 0 0 2px; min-height: 32px; padding: 0 12px; border: 1.5px solid rgba(89, 56, 181, .3); border-radius: 999px; background: var(--white); color: var(--violet); font: 700 .84rem var(--font-body); }
+.help-go:hover { background: var(--white); border-color: var(--violet); }
+.help-go:focus-visible { outline: 3px solid var(--violet); outline-offset: 2px; }
 .help-ideas { display: flex; flex-wrap: wrap; gap: 6px; }
 .help-ideas .chip { min-height: 34px; padding: 6px 12px; font-size: .84rem; }
 .help-form { display: flex; gap: 8px; }

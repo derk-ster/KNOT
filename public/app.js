@@ -12,6 +12,72 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) 
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const CITIES = ['Plano', 'Dallas', 'Frisco', 'Richardson', 'Allen', 'McKinney', 'Irving', 'Garland', 'Austin', 'Houston', 'Fort Worth'];
+// States and their major cities, one line each, so the profile can offer a state first and then a
+// city. Anything not listed is still allowed: the city box takes whatever the member types.
+const US_PLACES = {
+  AL: 'Birmingham, Montgomery, Huntsville, Mobile',
+  AK: 'Anchorage, Fairbanks, Juneau',
+  AZ: 'Phoenix, Tucson, Mesa, Scottsdale, Flagstaff',
+  AR: 'Little Rock, Fayetteville, Fort Smith',
+  CA: 'Los Angeles, San Diego, San Francisco, San Jose, Sacramento, Fresno, Long Beach, Oakland',
+  CO: 'Denver, Colorado Springs, Boulder, Fort Collins, Aurora',
+  CT: 'Hartford, New Haven, Stamford, Bridgeport',
+  DE: 'Wilmington, Dover, Newark',
+  DC: 'Washington',
+  FL: 'Miami, Orlando, Tampa, Jacksonville, Tallahassee, Fort Lauderdale, St. Petersburg',
+  GA: 'Atlanta, Savannah, Athens, Augusta, Columbus',
+  HI: 'Honolulu, Hilo, Kailua',
+  ID: 'Boise, Meridian, Idaho Falls',
+  IL: 'Chicago, Springfield, Naperville, Peoria, Evanston',
+  IN: 'Indianapolis, Fort Wayne, Bloomington, South Bend',
+  IA: 'Des Moines, Cedar Rapids, Iowa City',
+  KS: 'Wichita, Kansas City, Topeka, Lawrence',
+  KY: 'Louisville, Lexington, Bowling Green',
+  LA: 'New Orleans, Baton Rouge, Shreveport, Lafayette',
+  ME: 'Portland, Bangor, Augusta',
+  MD: 'Baltimore, Annapolis, Frederick, Rockville',
+  MA: 'Boston, Cambridge, Worcester, Springfield, Somerville',
+  MI: 'Detroit, Ann Arbor, Grand Rapids, Lansing',
+  MN: 'Minneapolis, Saint Paul, Duluth, Rochester',
+  MS: 'Jackson, Gulfport, Oxford',
+  MO: 'Kansas City, Saint Louis, Springfield, Columbia',
+  MT: 'Billings, Missoula, Bozeman',
+  NE: 'Omaha, Lincoln, Grand Island',
+  NV: 'Las Vegas, Reno, Henderson, Carson City',
+  NH: 'Manchester, Concord, Nashua',
+  NJ: 'Newark, Jersey City, Trenton, Princeton',
+  NM: 'Albuquerque, Santa Fe, Las Cruces',
+  NY: 'New York, Buffalo, Rochester, Albany, Syracuse, Brooklyn, Queens',
+  NC: 'Charlotte, Raleigh, Durham, Greensboro, Asheville',
+  ND: 'Fargo, Bismarck, Grand Forks',
+  OH: 'Columbus, Cleveland, Cincinnati, Dayton, Toledo',
+  OK: 'Oklahoma City, Tulsa, Norman',
+  OR: 'Portland, Eugene, Salem, Bend',
+  PA: 'Philadelphia, Pittsburgh, Harrisburg, Allentown',
+  RI: 'Providence, Warwick, Newport',
+  SC: 'Charleston, Columbia, Greenville',
+  SD: 'Sioux Falls, Rapid City, Pierre',
+  TN: 'Nashville, Memphis, Knoxville, Chattanooga',
+  TX: 'Houston, Dallas, Austin, San Antonio, Fort Worth, Plano, Frisco, Richardson, Allen, McKinney, Irving, Garland, El Paso',
+  UT: 'Salt Lake City, Provo, Ogden, Park City',
+  VT: 'Burlington, Montpelier, Rutland',
+  VA: 'Richmond, Virginia Beach, Arlington, Norfolk, Alexandria',
+  WA: 'Seattle, Spokane, Tacoma, Bellevue, Olympia',
+  WV: 'Charleston, Morgantown, Huntington',
+  WI: 'Milwaukee, Madison, Green Bay',
+  WY: 'Cheyenne, Casper, Jackson'
+};
+const STATE_NAMES = {
+  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware',
+  DC: 'District of Columbia', FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa',
+  KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota',
+  MS: 'Mississippi', MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico',
+  NY: 'New York', NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island',
+  SC: 'South Carolina', SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont', VA: 'Virginia', WA: 'Washington',
+  WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming'
+};
+const placesIn = (code) => (code ? (US_PLACES[code] || '').split(',').map(s => s.trim()).filter(Boolean) : Object.values(US_PLACES).join(', ').split(',').map(s => s.trim()).filter(Boolean));
+const stateOf = (city) => Object.keys(US_PLACES).find(k => placesIn(k).some(c => c.toLowerCase() === String(city || '').toLowerCase())) || '';
 
 const icon = {
   check: '<svg class="ic" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5l4 4 8-9"/></svg>',
@@ -125,6 +191,45 @@ function wireDialogClose(d) {
   d.querySelector('.dlg').classList.add('has-x');
   d.append(b);
 }
+// ---------- asking before something that cannot be undone ----------
+// A question in KNOT's own clothes instead of the browser's confirm box. The answer comes back as
+// a promise, so a caller reads "if (await askConfirm(...))" the same way it read "if (!confirm())".
+// The safe answer holds the focus on a destructive question, so a stray Enter never deletes.
+let askClose = null;
+function askConfirm({ title, body, yes = 'Continue', no = 'Cancel', danger = false }) {
+  const d = $('#askDialog');
+  if (!d) return Promise.resolve(false);
+  if (askClose) askClose(false);
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = v => {
+      if (settled) return;
+      settled = true; askClose = null;
+      d.removeEventListener('close', onClose);
+      if (d.open) d.close();
+      resolve(v);
+    };
+    const onClose = () => finish(false);
+    askClose = finish;
+    d.innerHTML = `<div class="dlg ask${danger ? ' danger' : ''}">
+      <span class="ask-badge" aria-hidden="true">${danger ? icon.alert : icon.check}</span>
+      <div class="ask-copy">
+        <h2 id="askTitle">${esc(title)}</h2>
+        <p>${esc(body)}</p>
+      </div>
+      <div class="dlg-actions ask-actions">
+        <button type="button" class="btn ghost" data-no>${esc(no)}</button>
+        <button type="button" class="btn ${danger ? 'danger' : 'primary'}" data-yes>${esc(yes)}</button>
+      </div>
+    </div>`;
+    $('[data-no]', d).addEventListener('click', () => finish(false));
+    $('[data-yes]', d).addEventListener('click', () => finish(true));
+    d.addEventListener('close', onClose);
+    d.showModal();
+    (danger ? $('[data-no]', d) : $('[data-yes]', d)).focus();
+  });
+}
+
 // A plain link back to the page that owns this one: hash routing means no history games.
 const backLink = (href, label) => `<a class="back-btn" href="${href}"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l-6 6 6 6"/></svg>${esc(label)}</a>`;
 
@@ -136,6 +241,9 @@ function paintHeader() {
   $('#profileLabel').textContent = p.name ? p.name.split(' ')[0] : 'Profile';
   // Signing out lives in the profile dialog: the header keeps one clear action, which is signing in.
   const ab = $('#authBtn'); if (ab) { ab.textContent = 'Sign in'; ab.hidden = !!state.acct; }
+  // There is no profile to open until there is an account, so a signed-out header is Home and
+  // Sign in and nothing else. A guest still reaches their browser-kept profile from the home page.
+  const pb = $('#profileBtn'); if (pb) pb.hidden = !state.acct;
   const h = location.hash || '#/';
   // Discover, the AI Finder and My groups are members-only: until there is an account they are
   // not in the header at all, and their routes land on a sign-in card instead of the page.
@@ -159,7 +267,7 @@ function route(initial) {
   const h = location.hash || '#/';
   paintHeader();
   closeMenu();
-  ['profileDialog', 'createDialog', 'authDialog', 'settingsDialog', 'helpDialog'].forEach(id => { const d = $('#' + id); if (d && d.open) d.close(); });
+  ['profileDialog', 'createDialog', 'authDialog', 'settingsDialog', 'helpDialog', 'askDialog'].forEach(id => { const d = $('#' + id); if (d && d.open) d.close(); });
   paintHelpButton();
   document.body.classList.remove('has-create');
   if (h.startsWith('#/room/')) renderRoom(h.slice(7));
@@ -780,8 +888,9 @@ function openAuth(mode = 'in') {
     eye.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
     pass.focus();
   });
-  // interest chips editor
-  const interests = [];
+  // interest chips editor. Anything already saved in this browser (a guest profile) comes with the
+  // person into the new account, so interests are only ever asked for once.
+  const interests = isUp ? [...(myProfile().interests || [])].slice(0, 3) : [];
   const paintInterests = () => {
     $('#aInterestChips').innerHTML = interests.map((x, i) => `<span class="tag strong">${esc(x)}<button type="button" class="tag-x" data-rm="${i}" aria-label="Remove ${esc(x)}">${icon.x}</button></span>`).join('');
     $$('#aInterestChips [data-rm]').forEach(b => b.addEventListener('click', () => { interests.splice(Number(b.dataset.rm), 1); paintInterests(); }));
@@ -796,6 +905,7 @@ function openAuth(mode = 'in') {
     if (interests.length < 3) inp.focus();
   };
   if (isUp) {
+    paintInterests();
     $('#aInterestAdd').addEventListener('click', addInterest);
     $('#aInterest').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addInterest(); } });
   }
@@ -886,13 +996,17 @@ function openProfile(opts = {}) {
     </fieldset>
     <div class="field"><label for="pGoals">What you want to work on <span class="opt">(optional)</span></label>
       <input id="pGoals" type="text" maxlength="300" value="${esc(p.goals)}" placeholder="e.g. make a short film this spring"></div>
-    <details class="optional" ${p.city || (p.availability && p.availability.length) ? 'open' : ''}><summary>Location and availability</summary>
-      <div class="field"><label for="pCity">City</label><select id="pCity"><option value="">Prefer not to say</option>${CITIES.map(c => `<option ${p.city === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+    <details class="optional" ${p.city || (p.availability && p.availability.length) ? 'open' : ''}><summary><span>Location and availability</span><span class="opt-open">Open</span></summary>
+      <div class="field"><label for="pState">State</label><select id="pState"><option value="">Any state</option>${Object.keys(STATE_NAMES).map(k => `<option value="${k}" ${stateOf(p.city) === k ? 'selected' : ''}>${esc(STATE_NAMES[k])}</option>`).join('')}</select></div>
+      <div class="field"><label for="pCitySearch">City</label>
+        <input id="pCitySearch" type="text" maxlength="40" list="pCityList" autocomplete="off" value="${esc(p.city || '')}" placeholder="Search a city, or type your own">
+        <datalist id="pCityList"></datalist>
+        <p class="hint" id="pCityHint">Pick a state to narrow the list, or type any city that is not listed.</p></div>
       <fieldset class="field"><legend>Days you are usually free</legend><div class="chips" id="pDays">${DAYS.map(x => `<label class="toggle"><input type="checkbox" value="${x}" ${(p.availability || []).includes(x) ? 'checked' : ''}><span>${cap(x.slice(0, 3))}</span></label>`).join('')}</div></fieldset>
       <fieldset class="field"><legend>Meeting preference</legend><div class="chips">${[['both', 'Either'], ['in-person', 'In person'], ['online', 'Online']].map(([v, l]) => `<label class="toggle"><input type="radio" name="pMode" value="${v}" ${p.mode === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div></fieldset>
     </details>
     ${signedIn ? `
-    <details class="optional"><summary>Account and privacy</summary>
+    <details class="optional"><summary><span>Account and privacy</span><span class="opt-open">Open</span></summary>
       <p class="hint">Your email is never shown to other members. You can block people from any group member menu, and every profile field here is optional.</p>
       <div class="field"><label for="pEmail">Email (sign-in email, not public)</label><input id="pEmail" type="email" value="${esc(state.acct.email || '')}" disabled></div>
       <button type="button" class="btn ghost sm" id="pDelete">Delete my account</button>
@@ -910,7 +1024,7 @@ function openProfile(opts = {}) {
   $('#pCancel').addEventListener('click', () => d.close());
   const so = $('#pSignOut');
   if (so) so.addEventListener('click', async () => {
-    if (!confirm('Sign out? Your account and groups stay saved.')) return;
+    if (!await askConfirm({ title: 'Sign out?', body: 'Your account and groups stay saved. Sign back in any time.', yes: 'Sign out', no: 'Stay signed in' })) return;
     d.close();
     await signOut();
     route(false);
@@ -955,11 +1069,25 @@ function openProfile(opts = {}) {
   });
   const del = $('#pDelete');
   if (del) del.addEventListener('click', async () => {
-    if (!confirm('Delete your account? Your email is removed and your name is cleared. This cannot be undone.')) return;
+    if (!await askConfirm({ title: 'Delete your account?', body: 'Your email is removed and your name is cleared. This cannot be undone.', yes: 'Delete my account', no: 'Keep my account', danger: true })) return;
     try { await apiRaw('/api/auth/delete-account', { method: 'POST', body: '{}' }); } catch (ex) { showErr('#pErr', ex.message); return; }
     state.acct = null; d.close(); paintHeader(); route(false);
     say('Account deleted. You are now browsing as a guest.');
   });
+  // State narrows the city list; the city box itself stays free text, so a place that is not on the
+  // list can still be typed and saved.
+  const stateSel = $('#pState'), cityBox = $('#pCitySearch'), cityList = $('#pCityList'), cityHint = $('#pCityHint');
+  const paintPlaces = () => {
+    if (!cityList) return;
+    const code = stateSel ? stateSel.value : '';
+    const names = placesIn(code).sort((a, b) => a.localeCompare(b));
+    cityList.innerHTML = names.map(c => `<option value="${esc(c)}"></option>`).join('');
+    if (cityHint) cityHint.textContent = code
+      ? `Major cities in ${STATE_NAMES[code] || code} are suggested. Type any other city to use it instead.`
+      : 'Pick a state to narrow the list, or type any city that is not listed.';
+  };
+  if (stateSel) stateSel.addEventListener('change', () => { paintPlaces(); if (cityBox) cityBox.focus(); });
+  paintPlaces();
   $('#profileForm').addEventListener('submit', async e => {
     e.preventDefault();
     const name = $('#pName').value.trim(), skills = $$('#pSkills input:checked').map(i => i.value), ctext = $('#pCustom').value.trim();
@@ -984,7 +1112,7 @@ function openProfile(opts = {}) {
       const profile = {
         name, skills, interests,
         bio: $('#pBio').value.trim(), goals: $('#pGoals').value.trim(),
-        city: $('#pCity').value, availability: $$('#pDays input:checked').map(i => i.value),
+        city: ($('#pCitySearch').value || '').trim(), availability: $$('#pDays input:checked').map(i => i.value),
         mode: ($('input[name=pMode]:checked') || { value: 'both' }).value
       };
       if (state.acct) {
@@ -1255,11 +1383,21 @@ function paintRoom(room, isPoll) {
         <label class="sr" for="msgInput">Message</label>
         <div class="chat-input-wrap">
           <div class="cmd-pop" id="cmdPop" role="listbox" aria-label="KNOT AI commands" hidden></div>
+          <div class="attach-preview" id="attachPreview" hidden>
+            <img id="attachThumb" alt="The picture you are about to send">
+            <span class="attach-note">Ready to send. Pictures are checked by moderation.</span>
+            <button type="button" class="attach-x" id="attachClear" aria-label="Remove the picture">${icon.x}</button>
+          </div>
           <input id="msgInput" type="text" maxlength="2000" autocomplete="off" placeholder="${aiOn ? 'Message the group, or type / to ask KNOT AI' : 'Message the group'}" aria-describedby="chatHint">
         </div>
+        <label class="btn ghost photo-btn" for="msgPhoto" title="Send a picture">
+          <span class="sr">Send a picture</span>
+          <svg class="ic" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="15" height="12" rx="2.5"/><circle cx="7.4" cy="8.4" r="1.4"/><path d="M3 14l4.3-4.2 3 2.8 2.7-2.5L17 14"/></svg>
+          <input id="msgPhoto" type="file" accept="image/png,image/jpeg,image/webp" class="sr">
+        </label>
         <button class="btn primary" type="submit">Send ${icon.send}</button>
       </form>
-      <p class="hint chat-hint" id="chatHint">${aiOn ? 'Type <b>/</b> to ask KNOT AI in this group.' : 'KNOT AI is off here, so it will not answer. The owner can turn it on in group settings.'}</p>
+      <p class="hint chat-hint" id="chatHint">${aiOn ? 'Type <b>/</b> to ask KNOT AI in this group. Paste a picture to share it.' : 'KNOT AI is off here, so it will not answer. Paste a picture to share it.'}</p>
       <p class="msg err" id="msgErr" role="alert" hidden></p>` : ''}
     </div>
     <aside class="members-col" aria-labelledby="mh">
@@ -1277,16 +1415,52 @@ function paintRoom(room, isPoll) {
     if (wasTyping) { inp.focus(); try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch { /* older browsers */ } }
   }
   // wiring
+  // ---- pictures ----
+  // A photo can be pasted or picked. It is shrunk in this browser before it is posted, so what
+  // leaves here is a small JPEG, and the server checks the type, the size and moderation.
+  let pendingImage = null;
+  const preview = $('#attachPreview'), thumb = $('#attachThumb'), photoInput = $('#msgPhoto');
+  const setImage = (dataUrl) => {
+    pendingImage = dataUrl;
+    if (thumb) thumb.src = dataUrl;
+    if (preview) preview.hidden = !dataUrl;
+  };
+  const clearImage = () => {
+    pendingImage = null;
+    if (thumb) thumb.removeAttribute('src');
+    if (preview) preview.hidden = true;
+    if (photoInput) photoInput.value = '';
+  };
+  const takeFile = async (file) => {
+    const errBox = $('#msgErr');
+    if (!file) return;
+    try { setImage(await resizeImage(file, 1024)); }
+    catch (ex) { if (errBox) { errBox.innerHTML = icon.alert + `<span>${esc(ex.message)}</span>`; errBox.hidden = false; } }
+  };
+  const clearBtn = $('#attachClear');
+  if (clearBtn) clearBtn.addEventListener('click', () => { clearImage(); const i = $('#msgInput'); if (i) i.focus(); });
+  if (photoInput) photoInput.addEventListener('change', () => takeFile(photoInput.files && photoInput.files[0]));
+  const msgFormEl = $('#msgForm');
+  if (msgFormEl) msgFormEl.addEventListener('paste', (e) => {
+    const items = [...((e.clipboardData && e.clipboardData.items) || [])];
+    const item = items.find(i => i.kind === 'file' && i.type.startsWith('image/'));
+    if (!item) return;
+    e.preventDefault();
+    takeFile(item.getAsFile());
+  });
   const sendMsg = async (text, opts = {}) => {
     const errBox = $('#msgErr');
     if (errBox) errBox.hidden = true;
     text = text.trim();
-    if (!text) return;
+    const image = opts.image || pendingImage;
+    if (!text && !image) return;
     const input = $('#msgInput'); if (input) { input.value = ''; input.focus(); }
+    if (image) clearImage();
     // optimistic append, replaced on next poll
     const log2 = $('#msgLog');
-    if (log2) { log2.insertAdjacentHTML('beforeend', msgBubble({ id: 'tmp', authorId: myPid(), authorName: myProfile().name, text, kind: 'user', ts: new Date().toISOString() })); log2.scrollTop = log2.scrollHeight; }
+    if (log2) { log2.insertAdjacentHTML('beforeend', msgBubble({ id: 'tmp', authorId: myPid(), authorName: myProfile().name, text, image, kind: 'user', ts: new Date().toISOString() })); log2.scrollTop = log2.scrollHeight; }
     const body = { text, clientMsgId: uid(), authorId: myPid(), authorName: myProfile().name };
+    if (image) body.image = image;
     // Asking KNOT AI is a plain message plus this flag. The "/" is never sent.
     if (opts.askAi) body.askAi = true;
     try {
@@ -1377,8 +1551,8 @@ function paintRoom(room, isPoll) {
   if (form) form.addEventListener('submit', e => {
     e.preventDefault();
     const raw = ($('#msgInput').value || '').trim();
-    if (!raw) return;
-    const cmd = parseCommand(raw);
+    if (!raw && !pendingImage) return;
+    const cmd = raw ? parseCommand(raw) : null;
     if (cmd) runCommand(cmd); else sendMsg(raw);
   });
   const joinHere = $('#joinHereBtn');
@@ -1398,7 +1572,7 @@ function paintRoom(room, isPoll) {
   if (sb) sb.addEventListener('click', () => openSettings(room));
   const lb = $('#leaveBtn');
   if (lb) lb.addEventListener('click', async () => {
-    if (!confirm('Leave this group? You will need a new invite to come back.')) return;
+    if (!await askConfirm({ title: 'Leave this group?', body: 'You will need a new invite to come back.', yes: 'Leave group', no: 'Stay in the group', danger: true })) return;
     try { await apiRaw(`/api/rooms/${encodeURIComponent(room.id)}/leave`, { method: 'POST', body: '{}' }); location.hash = '#/groups'; }
     catch (ex) { say(ex.message); }
   });
@@ -1418,17 +1592,20 @@ function paintRoom(room, isPoll) {
     try { await apiRaw(`/api/rooms/${encodeURIComponent(room.id)}/${path}`, { method: 'POST', body: JSON.stringify(payload) }); say(okMsg); renderRoom(room.id); }
     catch (ex) { say(ex.message); }
   };
-  $$('[data-kick]', body).forEach(b => b.addEventListener('click', () => {
-    if (!confirm('Remove this person from the group? They can join again with the invite link.')) return;
+  $$('[data-kick]', body).forEach(b => b.addEventListener('click', async () => {
+    if (!await askConfirm({ title: 'Remove this person?', body: 'They can join again with the invite link.', yes: 'Remove', no: 'Keep them in the group' })) return;
     modAct('kick', { pid: b.dataset.kick }, 'Removed. They can join again with the invite link.');
   }));
-  $$('[data-ban]', body).forEach(b => b.addEventListener('click', () => {
-    if (!confirm('Ban this person? They will not be able to rejoin this group, and you can undo it from the Removed people list.')) return;
+  $$('[data-ban]', body).forEach(b => b.addEventListener('click', async () => {
+    if (!await askConfirm({ title: 'Ban this person?', body: 'They will not be able to rejoin this group. You can undo it from the Removed people list.', yes: 'Ban', no: 'Cancel', danger: true })) return;
     modAct('ban', { pid: b.dataset.ban, reason: 'Removed by a moderator' }, 'Banned. They cannot rejoin unless you let them back in.');
   }));
   $$('[data-unban]', body).forEach(b => b.addEventListener('click', () => modAct('unban', { pid: b.dataset.unban }, 'They can join again.')));
   $$('[data-role]', body).forEach(b => b.addEventListener('click', () => modAct('promote', { pid: b.dataset.role, role: b.dataset.roletarget || 'member' }, 'Role updated.')));
-  $$('[data-owner]', body).forEach(b => b.addEventListener('click', () => { if (confirm('Make this member the owner? You become a regular member.')) modAct('transfer', { pid: b.dataset.owner }, 'Ownership transferred.'); }));
+  $$('[data-owner]', body).forEach(b => b.addEventListener('click', async () => {
+    if (!await askConfirm({ title: 'Make this member the owner?', body: 'You become a regular member and lose the owner controls.', yes: 'Transfer ownership', no: 'Cancel' })) return;
+    modAct('transfer', { pid: b.dataset.owner }, 'Ownership transferred.');
+  }));
   $$('[data-block]', body).forEach(b => b.addEventListener('click', async () => {
     try { const r = await apiRaw('/api/blocks', { method: 'POST', body: JSON.stringify({ pid: b.dataset.block }) }); say(r.note || 'Blocked.'); }
     catch (ex) { say(ex.message); }
@@ -1439,11 +1616,28 @@ function paintRoom(room, isPoll) {
 }
 function msgBubble(x) {
   const mine = x.you !== undefined ? x.you : !!(x.authorId && x.authorId === myPid());
-  if (x.kind === 'assistant') return `<div class="bubble bot ai">${markImg(26)}<div><span class="who">KNOT AI</span>${esc(x.text)}<span class="when">${esc(fmtTime(x.ts))}</span></div></div>`;
+  // A picture is part of the message: it sits in the bubble, opens full size when clicked.
+  const pic = x.image ? `<button type="button" class="bubble-pic" data-pic="${esc(x.image)}" aria-label="Open the picture from ${esc(x.authorName || 'this member')}"><img class="bubble-img" src="${esc(x.image)}" alt="Picture from ${esc(x.authorName || 'a member')}" loading="lazy" decoding="async"></button>` : '';
+  if (x.kind === 'assistant') return `<div class="bubble bot ai">${markImg(26)}<div><span class="who">KNOT AI</span>${pic}${x.text ? `<span class="bubble-text">${esc(x.text)}</span>` : ''}<span class="when">${esc(fmtTime(x.ts))}</span></div></div>`;
   // A fictional demo profile: never dressed up as a real member, always tagged.
-  if (x.kind === 'demo') return `<div class="bubble them demo"><span class="who">${esc(x.authorName)}<span class="demo-tag">Demo</span></span>${esc(x.text)}<span class="when">${esc(fmtTime(x.ts))}</span></div>`;
-  return `<div class="bubble ${mine ? 'me' : 'them'}"><span class="who">${esc(x.authorName)}</span>${esc(x.text)}<span class="when">${esc(fmtTime(x.ts))}</span></div>`;
+  if (x.kind === 'demo') return `<div class="bubble them demo"><span class="who">${esc(x.authorName)}<span class="demo-tag">Demo</span></span>${pic}${x.text ? `<span class="bubble-text">${esc(x.text)}</span>` : ''}<span class="when">${esc(fmtTime(x.ts))}</span></div>`;
+  return `<div class="bubble ${mine ? 'me' : 'them'}"><span class="who">${esc(x.authorName)}</span>${pic}${x.text ? `<span class="bubble-text">${esc(x.text)}</span>` : ''}<span class="when">${esc(fmtTime(x.ts))}</span></div>`;
 }
+
+// The picture viewer: one dialog for every photo in every room, closed with its X, Escape or a
+// click on the dark space around it.
+function openImage(src, alt) {
+  const d = $('#imgDialog');
+  if (!d) return;
+  d.innerHTML = `<div class="dlg img-dlg"><img src="${esc(src)}" alt="${esc(alt || 'Picture')}"><p class="hint">Click outside the picture, press Escape, or use the X to close.</p></div>`;
+  d.showModal();
+  wireDialogClose(d);
+  d.addEventListener('click', (e) => { if (e.target === d) d.close(); }, { once: true });
+}
+document.addEventListener('click', (e) => {
+  const pic = e.target.closest && e.target.closest('[data-pic]');
+  if (pic) openImage(pic.dataset.pic, (pic.querySelector('img') || {}).alt);
+});
 function copyText(t) {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).catch(() => {});
   else { const i = document.createElement('input'); i.value = t; document.body.appendChild(i); i.select(); try { document.execCommand('copy'); } catch { /* older browsers */ } i.remove(); }
@@ -1530,7 +1724,8 @@ function openReport(room, target) {
 // somewhere to go, the panel closes and the page takes the member there.
 const HELP_IDEAS = ['What do I do next?', 'How do I make a group?', 'Where are my groups?', 'How does matching work?'];
 // Each guide target mapped to the control it names, so an answer can point at the real thing.
-const HELP_TARGETS = { goal: '.goal-wrap', need: '.goal-wrap', find: '#findBtn', finderInput: '#fInput', profile: '#profileBtn', offer: '#offerInput', create: '#createBtn' };
+const HELP_TARGETS = { goal: '.goal-wrap', need: '.goal-wrap', find: '#findBtn', finderInput: '#fInput', profile: '#profileBtn', auth: '#authBtn', offer: '#offerInput', create: '#createBtn' };
+const HELP_PAGE_NAMES = { '#/': 'Home', '#/finder': 'the AI Finder', '#/groups': 'My groups' };
 const helpLog = [];
 
 function paintHelpButton() {
@@ -1563,13 +1758,17 @@ function openHelp() {
   $('#helpClose').addEventListener('click', () => { d.close(); paintHelpButton(); });
   d.addEventListener('close', paintHelpButton, { once: true });
   $$('#helpIdeas [data-idea]').forEach(b => b.addEventListener('click', () => askHelp(b.dataset.idea)));
+  $('#helpLog').addEventListener('click', e => {
+    const go = e.target.closest('[data-go]');
+    if (go) takeHelpAction({ hash: go.dataset.go });
+  });
   $('#helpForm').addEventListener('submit', e => { e.preventDefault(); askHelp($('#helpInput').value); });
   $('#helpInput').focus();
 }
 
 function paintHelpLog() {
   const box = $('#helpLog'); if (!box) return;
-  box.innerHTML = helpLog.map(m => `<p class="help-bubble ${m.role === 'user' ? 'me' : 'bot'}${m.wait ? ' wait' : ''}">${esc(m.text)}</p>`).join('');
+  box.innerHTML = helpLog.map(m => `<p class="help-bubble ${m.role === 'user' ? 'me' : 'bot'}${m.wait ? ' wait' : ''}">${esc(m.text)}${m.go ? `<button type="button" class="help-go" data-go="${esc(m.go.hash)}">${esc(m.go.label)}</button>` : ''}</p>`).join('');
   box.scrollTop = box.scrollHeight;
 }
 
@@ -1578,6 +1777,8 @@ function paintHelpLog() {
 function helpNext() {
   if (state.resp && state.resp.next) return state.resp.next;
   const h = location.hash || '#/';
+  // Signed out, the only step that unlocks anything is signing in: the rest of KNOT is member-only.
+  if (!state.acct) return { target: 'auth' };
   if ((h === '#/' || h === '#/finder') && $('#goal')) return { target: 'goal' };
   return null;
 }
@@ -1598,12 +1799,15 @@ async function askHelp(text) {
       })
     });
     helpLog.pop();
-    helpLog.push({ role: 'bot', text: out.reply || 'I can take you to Home, Discover, AI Finder or My groups.' });
+    // The answer is the bot's own words. If it names a page, the way there is offered as a button
+    // rather than taken: the panel stays open so the conversation is still there.
+    const page = HELP_PAGE_NAMES[out.hash];
+    helpLog.push({ role: 'bot', text: out.reply || 'How can I help?', go: page ? { hash: out.hash, label: 'Take me to ' + page } : null });
     paintHelpLog();
-    if (out.hash || out.highlight) takeHelpAction(out);
+    if (out.highlight) flashHelpTarget(out.highlight, 0);
   } catch {
     helpLog.pop();
-    helpLog.push({ role: 'bot', text: 'I could not answer just now. The top bar goes to Home, Discover, AI Finder and My groups.' });
+    helpLog.push({ role: 'bot', text: state.acct ? 'I could not answer just now. The top bar goes to Home, Discover, AI Finder and My groups.' : 'I could not answer just now. The top bar goes to Home, and Sign in is next to it.' });
     paintHelpLog();
   } finally { state.helpBusy = false; }
 }
@@ -1620,7 +1824,8 @@ function takeHelpAction(out) {
 }
 
 function flashHelpTarget(target, delay = 0) {
-  const sel = HELP_TARGETS[target];
+  // The profile control only exists once there is an account; until then the way in is Sign in.
+  const sel = target === 'profile' && !state.acct ? '#authBtn' : HELP_TARGETS[target];
   if (!sel) return;
   let tries = 0;
   const ring = () => {

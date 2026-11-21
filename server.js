@@ -377,7 +377,12 @@ async function api(req, res, url) {
   if (m === 'POST' && parts[0] === 'ai') {
     if (!limited(req)) return send(res, 429, { error: 'Slow down a little and try again in a minute.' });
     const b = await readBody(req);
-    if (parts[1] === 'help') return send(res, 200, await helpTurn({ history: b.history, context: b.context }));
+    if (parts[1] === 'help') {
+      // Guests get answers that fit what a guest can reach, so the bot never sends them to a page
+      // that would only ask them to sign in.
+      const who = await getSession(req, res);
+      return send(res, 200, await helpTurn({ history: b.history, context: b.context, signedIn: !!who.accountId }));
+    }
     if (parts[1] === 'finder') {
       if (!llm.enabled()) return send(res, 503, { error: 'The AI Finder is not configured on this server. Use the matching box on this page instead.' });
       const me = b.me || {};
@@ -552,9 +557,29 @@ async function api(req, res, url) {
     }
     if (m === 'POST' && parts[2] === 'messages') {
       if (!limited(req, 'msg', 30)) return send(res, 429, { error: 'Slow down a little and try again in a minute.' });
-      const b = await readBody(req);
+      let b; try { b = await readBody(req, 1024 * 1024); } catch { return send(res, 413, { error: 'That picture is too large. Use one under 300 KB.' }); }
       const text = String(b.text == null ? '' : b.text).trim().slice(0, 2000);
-      if (!text) return send(res, 400, { error: 'Type a message first.' });
+      // A photo on its own is a message: the same validation as a profile picture, so nothing but a
+      // real PNG, JPEG or WebP gets in, and moderation runs before it is stored.
+      const rawImage = String(b.image || '');
+      let image = null;
+      if (rawImage) {
+        const match = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(rawImage);
+        if (!match) return send(res, 400, { error: 'Send a PNG, JPEG or WebP picture.' });
+        const head = Buffer.from(match[2].slice(0, 16), 'base64');
+        const magicOk = (match[1] === 'png' && head.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+          || (match[1] === 'jpeg' && head[0] === 0xff && head[1] === 0xd8)
+          || (match[1] === 'webp' && head.slice(0, 4).toString() === 'RIFF');
+        if (!magicOk) return send(res, 400, { error: 'That file is not a real picture. Export it as PNG, JPEG or WebP and try again.' });
+        if (Math.floor(match[2].length * 3 / 4) > 300 * 1024) return send(res, 413, { error: 'Keep pictures under 300 KB.' });
+        const imgMod = await openai.moderateImage(rawImage);
+        if (imgMod && imgMod.flagged) {
+          await store.addReport({ reporterUser: user2, roomId: room.id, targetPid: myPid, reason: 'Automatic photo moderation', details: 'Picture in a group flagged as: ' + imgMod.categories.join(', '), status: 'open' }).catch(() => {});
+          return send(res, 422, { error: 'That picture was flagged by moderation, so KNOT cannot post it. Try a different one.' });
+        }
+        image = rawImage;
+      }
+      if (!text && !image) return send(res, 400, { error: 'Type a message first.' });
       // The client's /ai command is turned into this flag before it leaves the browser, so no slash
       // syntax ever reaches the server: this is just "also ask KNOT AI about this message".
       const askAi = b.askAi === true;
@@ -570,7 +595,7 @@ async function api(req, res, url) {
       // other than a member's own message.
       const msg = await store.addMessage(room, {
         userId: user2.accountId ? null : user2.id, accountId: user2.accountId || null,
-        authorName: user2.name, text, clientMsgId: str(b.clientMsgId, 60) || null, kind: 'user'
+        authorName: user2.name, text, image, clientMsgId: str(b.clientMsgId, 60) || null, kind: 'user'
       });
       const replies = [];
       // The fictional demo profiles answer, so a sandbox group is a chat and not a dead room. The

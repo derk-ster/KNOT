@@ -482,6 +482,56 @@ test('messages: a client cannot post as KNOT AI', async () => {
   assert.ok(list.some(m => m.text === 'pretending to be the assistant' && m.kind === 'user'), 'the message posted as an ordinary member message');
 });
 
+test('help bot: a guest is pointed at sign in, a member is offered the page', async () => {
+  const guest = jar();
+  const ask = async (j, q, context) => (await post('/api/ai/help', { history: [{ role: 'user', content: q }], context }, j)).json();
+  const groups = await ask(guest, 'where are my groups?');
+  assert.match(groups.reply, /free account/i, 'a guest hears what a guest can actually do');
+  assert.equal(groups.action, 'none', 'never offers a page a guest cannot open');
+  assert.equal(groups.highlight, 'auth', 'points at the sign-in button instead');
+  // the answer is the bot's own sentence, not one fixed line for every question
+  const other = await ask(guest, 'how do I sign in?');
+  assert.notEqual(other.reply, groups.reply, 'two questions get two answers');
+  assert.match(other.reply, /Sign in/);
+  // signed in, the same question offers the page and keeps its own wording
+  const member = jar();
+  await signup(member, { name: 'Help Member' });
+  const mine = await ask(member, 'where are my groups?');
+  assert.equal(mine.action, 'groups');
+  assert.equal(mine.hash, '#/groups');
+  assert.ok(!/free account/i.test(mine.reply), 'a member is not told to sign in');
+  // the app's own state still answers "what next" exactly, with a control to ring
+  const next = await ask(guest, 'what do I do next?', { next: { target: 'auth' } });
+  assert.equal(next.source, 'app');
+  assert.equal(next.highlight, 'auth');
+});
+
+test('messages: a picture posts with the message, junk pictures are refused', async () => {
+  const j = jar();
+  await post('/api/session', {}, j);
+  const { room } = await (await post('/api/rooms', { requestId: 'req-pic', title: 'Photo lab', goal: 'Share pictures with the group.', memberIds: [] }, j)).json();
+  // A real PNG signature, so the magic-byte check passes. No model is configured here, so the
+  // image moderation step is a no-op and the picture is accepted.
+  const png = 'data:image/png;base64,' + Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0, 0, 0]).toString('base64');
+  const ok = await post(`/api/rooms/${room.id}/messages`, { text: '', image: png }, j);
+  assert.equal(ok.status, 201, 'a picture on its own is a message');
+  const { message } = await ok.json();
+  assert.equal(message.image, png);
+  assert.equal(message.kind, 'user', 'a picture still posts as the member');
+  assert.equal(message.authorName, (await (await get('/api/auth/me', j)).json()).name, 'the author is the session, not the picture');
+  // not a data URL, and a data URL that is not really a picture
+  assert.equal((await post(`/api/rooms/${room.id}/messages`, { image: 'https://example.com/x.png' }, j)).status, 400);
+  assert.equal((await post(`/api/rooms/${room.id}/messages`, { image: 'data:image/png;base64,bm90YXBpY3R1cmU=' }, j)).status, 400);
+  // a picture and a caption both land on the same message
+  const both = await (await post(`/api/rooms/${room.id}/messages`, { text: 'the poster', image: png }, j)).json();
+  assert.equal(both.message.text, 'the poster');
+  assert.equal(both.message.image, png);
+  // an empty message is still refused
+  assert.equal((await post(`/api/rooms/${room.id}/messages`, { text: '' }, j)).status, 400);
+  const list = (await (await get(`/api/rooms/${room.id}/messages`, j)).json()).messages;
+  assert.equal(list.filter(m => m.image === png).length, 2, 'pictures are stored with their messages');
+});
+
 test('profile PATCH: held text in name, city or interests is never saved', async () => {
   const j = jar();
   await signup(j, { name: 'Norm Patch' });
