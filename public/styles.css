@@ -288,6 +288,9 @@ main#main { min-height: 60vh; position: relative; z-index: 1; }
 }
 .hero-actions .btn.ghost { border-color: rgba(33, 30, 40, .1); }
 .section { max-width: 1080px; margin-inline: auto; padding: clamp(32px, 6vw, 64px) var(--gutter) 0; }
+/* The two explainer sections are one block of copy about KNOT itself, so their headings sit in the
+   middle of the page; the steps and cards under them stay left aligned and easy to scan. */
+.section.center > h2 { text-align: center; }
 
 /* ---------- signed-in home ---------- */
 /* The working home. The colour is a wash behind the headline and a handful of small metallic

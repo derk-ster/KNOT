@@ -376,7 +376,7 @@ function renderHome() {
       <div id="homeGroupsList" class="grid3" aria-live="polite"><p class="hint">Loading…</p></div>
     </section>
 
-    <section class="section reveal" aria-labelledby="hwh">
+    <section class="section reveal center" aria-labelledby="hwh">
       <h2 id="hwh">How KNOT works</h2>
       <ol class="steps">
         <li><span class="n" aria-hidden="true">1</span><div><strong>Find people</strong><p>Say what you want to do. KNOT explains who fits and why.</p></div></li>
@@ -385,7 +385,7 @@ function renderHome() {
       </ol>
     </section>
 
-    <section class="section reveal" aria-labelledby="haih">
+    <section class="section reveal center" aria-labelledby="haih">
       <h2 id="haih">KNOT AI</h2>
       <div class="ai-grid">
         <div class="ai-card"><h3>Matching</h3><p>Describe a goal in plain words. AI reads the intent, and every match cites the real stored profile fields behind it.</p></div>
