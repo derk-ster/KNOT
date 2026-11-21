@@ -38,6 +38,7 @@ const state = {
   acct: null,            // signed-in account payload (with profile) or null for guests
   me: store.get('knot.me', null),   // guest profile kept locally (name, skills, city, ...)
   goal: store.get('knot.goal', ''),
+  helpBusy: false,
   relaxed: [],
   resp: null, respKey: null,
   selected: new Set(),
@@ -135,7 +136,9 @@ function route(initial) {
   const h = location.hash || '#/';
   paintHeader();
   closeMenu();
-  ['profileDialog', 'createDialog', 'authDialog', 'settingsDialog'].forEach(id => { const d = $('#' + id); if (d.open) d.close(); });
+  ['profileDialog', 'createDialog', 'authDialog', 'settingsDialog', 'helpDialog'].forEach(id => { const d = $('#' + id); if (d && d.open) d.close(); });
+  paintHelpButton();
+  document.body.classList.remove('has-create');
   if (h.startsWith('#/room/')) renderRoom(h.slice(7));
   else if (h.startsWith('#/join/')) renderJoin(h.slice(7));
   else if (h === '#/discover') renderDiscover();
@@ -261,9 +264,11 @@ function renderMemberHome() {
     </section>
 
     <section class="section reveal" aria-labelledby="hbring">
-      <div class="sec-head">
-        <h2 id="hbring">What you bring, what you need</h2>
-        <span class="hint">Saved to your profile. Matching reads these, so keep them current.</span>
+      <div class="sec-head stack">
+        <div>
+          <h2 id="hbring">What you bring, what you need</h2>
+          <p class="hint">Saved to your profile. Matching reads these, so keep them current.</p>
+        </div>
       </div>
       <div class="offer-grid">
         <div class="offer-card">
@@ -946,6 +951,8 @@ function updateCreateBar() {
   const bar = $('#createBar'); if (!bar) return;
   const sel = selectedResults();
   bar.hidden = !sel.length;
+  // The help button lives in the same corner: lift it clear while the create bar is along the bottom.
+  document.body.classList.toggle('has-create', !bar.hidden);
   if (sel.length) {
     $('#createText').textContent = `${sel.map(s => s.name.split(' ')[0]).join(', ')} selected. Ready to start a group?`;
     $('#createBtn').textContent = sel.length > 1 ? `Create group (${sel.length})` : 'Create group';
@@ -1337,6 +1344,119 @@ function openReport(room, target) {
   });
 }
 
+// ---------- HELP ----------
+// One button in the corner for anyone who is stuck. The answer comes from the app's own state first
+// ("what do I do next" is answered from the matcher's next step), then from the help bot, then from
+// the server's keyword fallback, so it still answers with no AI key configured. When an answer has
+// somewhere to go, the panel closes and the page takes the member there.
+const HELP_IDEAS = ['What do I do next?', 'How do I make a group?', 'Where are my groups?', 'How does matching work?'];
+// Each guide target mapped to the control it names, so an answer can point at the real thing.
+const HELP_TARGETS = { goal: '.goal-wrap', need: '.goal-wrap', find: '#findBtn', finderInput: '#fInput', profile: '#profileBtn', offer: '#offerInput', create: '#createBtn' };
+const helpLog = [];
+
+function paintHelpButton() {
+  const b = $('#helpBtn'), d = $('#helpDialog');
+  if (b) b.setAttribute('aria-expanded', String(!!(d && d.open)));
+}
+
+function openHelp() {
+  const d = $('#helpDialog');
+  if (d.open) { d.close(); paintHelpButton(); return; }
+  d.innerHTML = `<div class="help-panel">
+    <div class="help-head">
+      <span class="help-mark">${markImg(30)}</span>
+      <div class="help-title"><h2 id="helpTitle">Help</h2><p class="hint">Ask where things are and I will point you to them.</p></div>
+      <button type="button" class="help-x" id="helpClose" aria-label="Close help">${icon.x}</button>
+    </div>
+    <div class="help-log" id="helpLog" role="log" aria-live="polite" aria-label="Help conversation"></div>
+    <div class="help-ideas" id="helpIdeas">${HELP_IDEAS.map(x => `<button type="button" class="chip" data-idea="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+    <form class="help-form" id="helpForm" novalidate>
+      <label class="sr" for="helpInput">Ask a question</label>
+      <input id="helpInput" type="text" maxlength="200" autocomplete="off" placeholder="Where do I find my groups?">
+      <button class="btn primary sm" type="submit">Ask</button>
+    </form>
+  </div>`;
+  // Non-modal on purpose: the page stays usable while the panel is open, so an answer can point at
+  // a control that the member can see and reach.
+  d.show();
+  paintHelpButton();
+  paintHelpLog();
+  $('#helpClose').addEventListener('click', () => { d.close(); paintHelpButton(); });
+  d.addEventListener('close', paintHelpButton, { once: true });
+  $$('#helpIdeas [data-idea]').forEach(b => b.addEventListener('click', () => askHelp(b.dataset.idea)));
+  $('#helpForm').addEventListener('submit', e => { e.preventDefault(); askHelp($('#helpInput').value); });
+  $('#helpInput').focus();
+}
+
+function paintHelpLog() {
+  const box = $('#helpLog'); if (!box) return;
+  box.innerHTML = helpLog.map(m => `<p class="help-bubble ${m.role === 'user' ? 'me' : 'bot'}${m.wait ? ' wait' : ''}">${esc(m.text)}</p>`).join('');
+  box.scrollTop = box.scrollHeight;
+}
+
+// The next step the app knows about: the matcher's own hint when there is one, otherwise the goal
+// box on the page in front of the member. Null means the app has nothing useful to add.
+function helpNext() {
+  if (state.resp && state.resp.next) return state.resp.next;
+  const h = location.hash || '#/';
+  if ((h === '#/' || h === '#/finder') && $('#goal')) return { target: 'goal' };
+  return null;
+}
+
+async function askHelp(text) {
+  text = String(text || '').trim().slice(0, 200);
+  if (!text || state.helpBusy) return;
+  const input = $('#helpInput'); if (input) input.value = '';
+  helpLog.push({ role: 'user', text });
+  helpLog.push({ role: 'bot', text: 'One moment.', wait: true });
+  state.helpBusy = true; paintHelpLog();
+  try {
+    const out = await apiRaw('/api/ai/help', {
+      method: 'POST',
+      body: JSON.stringify({
+        history: helpLog.filter(m => !m.wait).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text })),
+        context: { next: helpNext() }
+      })
+    });
+    helpLog.pop();
+    helpLog.push({ role: 'bot', text: out.reply || 'I can take you to Home, Discover, AI Finder or My groups.' });
+    paintHelpLog();
+    if (out.hash || out.highlight) takeHelpAction(out);
+  } catch {
+    helpLog.pop();
+    helpLog.push({ role: 'bot', text: 'I could not answer just now. The top bar goes to Home, Discover, AI Finder and My groups.' });
+    paintHelpLog();
+  } finally { state.helpBusy = false; }
+}
+
+// An answer that has somewhere to go closes the panel and goes there, then rings the control it
+// named for a moment so the member can see what it was talking about.
+function takeHelpAction(out) {
+  const d = $('#helpDialog'); if (d.open) d.close();
+  if (out.hash && out.hash !== (location.hash || '#/')) {
+    location.hash = out.hash;
+    say('Help took you to ' + out.hash.replace('#/', '').replace(/^\w/, c => c.toUpperCase()));
+  }
+  if (out.highlight) flashHelpTarget(out.highlight, out.hash ? 400 : 0);
+}
+
+function flashHelpTarget(target, delay = 0) {
+  const sel = HELP_TARGETS[target];
+  if (!sel) return;
+  let tries = 0;
+  const ring = () => {
+    const el = $(sel);
+    // Pages render after a hash change, so wait for the control rather than give up on the first try.
+    if (!el) { if (tries++ < 12) setTimeout(ring, 150); return; }
+    el.classList.remove('help-flash');
+    void el.offsetWidth;
+    el.classList.add('help-flash');
+    if (el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: reduceMotion() ? 'auto' : 'smooth' });
+    setTimeout(() => el.classList.remove('help-flash'), 2400);
+  };
+  setTimeout(ring, delay);
+}
+
 // ---------- INVITE JOIN ----------
 async function renderJoin(code) {
   const main = $('#main');
@@ -1365,6 +1485,7 @@ async function boot() {
   $('#navGroups').addEventListener('click', closeMenu);
   $('#profileBtn').addEventListener('click', () => openProfile());
   $('#authBtn').addEventListener('click', () => openAuth('in'));
+  $('#helpBtn').addEventListener('click', openHelp);
   try {
     const status = await apiRaw('/api/status');
     localRooms = !status.persistent;
