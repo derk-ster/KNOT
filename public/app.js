@@ -108,6 +108,23 @@ const hideErr = sel => { const e = $(sel); if (e) e.hidden = true; };
 // my principal id, the same shape the server stamps on messages and members
 const myPid = () => state.acct ? 'a:' + state.acct.accountId : (state.sessionId ? String(state.sessionId) : null);
 
+// ---------- ways out ----------
+// Every dialog closes from the same corner button, so nothing is a trap. It sits on the dialog
+// itself rather than inside the scrolling form, so it stays put when a long one scrolls.
+function wireDialogClose(d) {
+  if (!d.querySelector('.dlg') || d.querySelector('.dlg-x')) return;
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'dlg-x';
+  b.setAttribute('aria-label', 'Close');
+  b.innerHTML = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5.5 5.5l9 9M14.5 5.5l-9 9"/></svg>';
+  b.addEventListener('click', () => d.close());
+  d.querySelector('.dlg').classList.add('has-x');
+  d.append(b);
+}
+// A plain link back to the page that owns this one: hash routing means no history games.
+const backLink = (href, label) => `<a class="back-btn" href="${href}"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l-6 6 6 6"/></svg>${esc(label)}</a>`;
+
 // ---------- header ----------
 function paintHeader() {
   const p = myProfile();
@@ -117,6 +134,9 @@ function paintHeader() {
   // Signing out lives in the profile dialog: the header keeps one clear action, which is signing in.
   const ab = $('#authBtn'); if (ab) { ab.textContent = 'Sign in'; ab.hidden = !!state.acct; }
   const h = location.hash || '#/';
+  // Discover, the AI Finder and My groups are members-only: until there is an account they are
+  // not in the header at all, and their routes land on a sign-in card instead of the page.
+  ['navDiscover', 'navFinder', 'navGroups'].forEach(id => { const el = $('#' + id); if (el) el.hidden = !state.acct; });
   $('#navHome').setAttribute('aria-current', h === '#/' || h === '' ? 'page' : 'false');
   $('#navDiscover').setAttribute('aria-current', h.startsWith('#/discover') ? 'page' : 'false');
   $('#navFinder').setAttribute('aria-current', h.startsWith('#/finder') ? 'page' : 'false');
@@ -141,6 +161,7 @@ function route(initial) {
   document.body.classList.remove('has-create');
   if (h.startsWith('#/room/')) renderRoom(h.slice(7));
   else if (h.startsWith('#/join/')) renderJoin(h.slice(7));
+  else if (!state.acct && (h === '#/discover' || h === '#/finder' || h === '#/groups')) renderLocked(h.slice(2));
   else if (h === '#/discover') renderDiscover();
   else if (h === '#/groups') renderGroups();
   else if (h === '#/finder') renderFinder();
@@ -148,6 +169,33 @@ function route(initial) {
   refreshGroupCount();
 }
 window.addEventListener('hashchange', () => route(false));
+
+// members-only pages, reached without an account
+const LOCKED = {
+  discover: { title: 'Discover is for members', hint: 'Public groups and real members open up once you have an account. It is how groups stay moderated and how blocked people stay apart.' },
+  finder: { title: 'The AI Finder is for members', hint: 'Matching reads the interests and skills saved on your account, so it needs an account to work from.' },
+  groups: { title: 'My groups is for members', hint: 'Your groups follow your account, so they need an account to live in. Sign in and they are all here.' }
+};
+function renderLocked(key) {
+  const c = LOCKED[key] || LOCKED.finder;
+  $('#main').innerHTML = `<section class="page" aria-labelledby="lk">
+    ${backLink('#/', 'Back to home')}
+    <div class="lock-card">
+      <img class="lock-art" src="assets/art/puzzle_piece.png" width="96" height="98" alt="">
+      <div class="lock-copy">
+        <h1 id="lk" tabindex="-1" class="page-title">${esc(c.title)}</h1>
+        <p class="lead">${esc(c.hint)}</p>
+        <div class="lock-actions">
+          <button type="button" class="btn primary" id="lockIn">Sign in</button>
+          <button type="button" class="btn ghost" id="lockUp">Create an account</button>
+        </div>
+      </div>
+    </div>
+  </section>`;
+  $('#lk').focus({ preventScroll: true });
+  $('#lockIn').addEventListener('click', () => openAuth('in'));
+  $('#lockUp').addEventListener('click', () => openAuth('up'));
+}
 
 // mobile menu
 function closeMenu() {
@@ -487,6 +535,7 @@ async function renderFinder() {
   const aiOn = await apiRaw('/api/status').then(s => s.ai).catch(() => false);
   state.resultsTarget = '#matchResults';
   $('#main').innerHTML = `<section class="page finder" aria-labelledby="fh">
+    ${backLink('#/', 'Back to home')}
     <h1 id="fh" tabindex="-1" class="page-title">AI Finder</h1>
     <p class="lead">Describe what you want to do. KNOT finds people who fit, and explains why.</p>
     ${aiOn ? '' : `<p class="msg info small">AI chat is not configured on this server, so the matching box below runs on KNOT's local rules.</p>`}
@@ -591,6 +640,7 @@ async function finderAsk() {
 async function renderDiscover() {
   const main = $('#main');
   main.innerHTML = `<section class="page" aria-labelledby="dh">
+    ${backLink('#/', 'Back to home')}
     <h1 id="dh" tabindex="-1" class="page-title">Discover</h1>
     <p class="lead">Public groups and real members of KNOT.</p>
     <div id="discBody" aria-live="polite"><p class="hint">Loading…</p></div></section>`;
@@ -666,7 +716,7 @@ async function renderDiscover() {
 // ---------- GROUPS ----------
 async function renderGroups() {
   const main = $('#main');
-  main.innerHTML = `<section class="page"><h1 id="h1" tabindex="-1" class="page-title">My groups</h1><div id="groupList" aria-live="polite"><p class="hint">Loading…</p></div></section>`;
+  main.innerHTML = `<section class="page">${backLink('#/', 'Back to home')}<h1 id="h1" tabindex="-1" class="page-title">My groups</h1><div id="groupList" aria-live="polite"><p class="hint">Loading…</p></div></section>`;
   $('#h1').focus({ preventScroll: true });
   const rooms = await refreshGroupCount();
   const list = $('#groupList'); if (!list) return;
@@ -707,7 +757,7 @@ function openAuth(mode = 'in') {
       <button type="button" class="btn ghost" id="aSwap">${isUp ? 'I have an account' : 'New here? Create an account'}</button>
       <button type="submit" class="btn primary" id="aSubmit">${isUp ? 'Create account' : 'Sign in'}</button>
     </div></form>`;
-  d.showModal();
+  d.showModal(); wireDialogClose(d);
   $('#aEmail').focus();
   const err = () => $('#aAuthErr');
   const showErr = t => { const e = err(); e.innerHTML = icon.alert + `<span>${esc(t)}</span>`; e.hidden = false; };
@@ -837,7 +887,7 @@ function openProfile(opts = {}) {
         <button type="submit" class="btn primary">${opts.thenSearch ? 'Save and find my people' : 'Save profile'}</button>
       </div>
     </div></form>`;
-  d.showModal();
+  d.showModal(); wireDialogClose(d);
   $('#pName').focus();
   $('#pCancel').addEventListener('click', () => d.close());
   const so = $('#pSignOut');
@@ -990,7 +1040,7 @@ function openCreate() {
     <p class="msg err" id="gErr" role="alert" hidden></p>
     <div class="dlg-actions"><button type="button" class="btn ghost" id="gCancel">Cancel</button><button type="submit" class="btn primary" id="gSubmit">Create group</button></div>
   </form>`;
-  d.showModal(); $('#gName').focus(); $('#gName').select();
+  d.showModal(); wireDialogClose(d); $('#gName').focus(); $('#gName').select();
   $('#gCancel').addEventListener('click', () => d.close());
   let busy = false;
   $('#createForm').addEventListener('submit', async e => {
@@ -1067,7 +1117,7 @@ function fmtTime(ts) {
 }
 async function renderRoom(id) {
   const main = $('#main');
-  main.innerHTML = `<section class="page room" aria-labelledby="rh"><div id="roomBody" aria-live="polite"><p class="hint">Opening the group…</p></div></section>`;
+  main.innerHTML = `<section class="page room" aria-labelledby="rh">${backLink('#/groups', 'Back to My groups')}<div id="roomBody" aria-live="polite"><p class="hint">Opening the group…</p></div></section>`;
   let room = null;
   try { room = (await api(`/api/rooms/${encodeURIComponent(id)}`)).room; }
   catch (ex) {
@@ -1299,7 +1349,7 @@ function openSettings(room) {
     <p class="msg err" id="sErr" role="alert" hidden></p>
     <div class="dlg-actions"><button type="button" class="btn ghost" id="sCancel">Cancel</button><button type="submit" class="btn primary">Save</button></div>
   </form>`;
-  d.showModal(); $('#sTitle').focus();
+  d.showModal(); wireDialogClose(d); $('#sTitle').focus();
   $('#sCancel').addEventListener('click', () => d.close());
   $('#setForm').addEventListener('submit', async e => {
     e.preventDefault();
@@ -1330,7 +1380,7 @@ function openReport(room, target) {
     <p class="msg err" id="repErr" role="alert" hidden></p>
     <div class="dlg-actions"><button type="button" class="btn ghost" id="repCancel">Cancel</button><button type="submit" class="btn primary">Send report</button></div>
   </form>`;
-  d.showModal();
+  d.showModal(); wireDialogClose(d);
   $('#repCancel').addEventListener('click', () => d.close());
   $('#repForm').addEventListener('submit', async e => {
     e.preventDefault();

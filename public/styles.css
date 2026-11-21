@@ -315,6 +315,20 @@ body.booted .reveal { animation: reveal-in 420ms var(--ease) forwards; }
 /* ---------- page scaffold ---------- */
 .page { max-width: 880px; margin-inline: auto; padding: 32px var(--gutter) 100px; }
 .page-title { font-size: clamp(2rem, 5.5vw, 3rem); font-weight: 800; letter-spacing: -.03em; margin-bottom: 10px; }
+/* A page that belongs to another page says so, and links back to it. */
+.back-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; margin-bottom: 14px; padding: 0 14px 0 10px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--white); color: var(--muted); font-weight: 600; font-size: .9rem; text-decoration: none; transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast), transform var(--t-fast); }
+.back-btn:hover { color: var(--violet); border-color: rgba(89, 56, 181, .34); background: var(--lilac); transform: translateX(-2px); }
+/* Members-only pages, seen without an account. */
+.lock-card { display: flex; gap: 26px; align-items: center; background: var(--white); border: 1.5px solid var(--line); border-radius: var(--r-lg); padding: 34px; box-shadow: var(--shadow-1); }
+.lock-art { width: 96px; height: auto; flex: none; }
+.lock-copy { min-width: 0; }
+.lock-copy .page-title { font-size: clamp(1.6rem, 4vw, 2.2rem); margin-bottom: 8px; }
+.lock-copy .lead { margin-bottom: 18px; }
+.lock-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+@media (max-width: 620px) {
+  .lock-card { flex-direction: column; align-items: flex-start; gap: 16px; padding: 24px; }
+  .lock-art { width: 72px; }
+}
 .lead { color: var(--muted); margin: 0 0 22px; max-width: 58ch; font-size: 1.05rem; }
 .group-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .group-row { display: flex; align-items: center; gap: 16px; background: var(--white); border: 1.5px solid var(--line); border-radius: var(--r-md); padding: 16px 20px; text-decoration: none; color: var(--ink); box-shadow: var(--shadow-1); transition: border-color var(--t-fast); }
@@ -477,7 +491,13 @@ body.booted .reveal { animation: reveal-in 420ms var(--ease) forwards; }
 /* ---------- dialogs ---------- */
 dialog { border: 0; border-radius: var(--r-lg); padding: 0; background: var(--white); color: var(--ink); width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); box-shadow: var(--shadow-2); }
 dialog::backdrop { background: rgba(33, 30, 40, .45); }
-dialog[open] { animation: cardIn var(--t-mid) var(--ease) both; }
+dialog[open] { position: fixed; animation: cardIn var(--t-mid) var(--ease) both; }
+/* One close button, same corner, every dialog. It hangs off the dialog itself rather than the
+   scrolling form, so a long dialog never scrolls its own exit out of reach. */
+.dlg-x { position: absolute; top: 12px; right: 12px; z-index: 4; width: 38px; height: 38px; border-radius: 50%; border: 1.5px solid var(--line); background: var(--white); color: var(--muted); display: grid; place-items: center; box-shadow: var(--shadow-1); transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast), transform var(--t-fast); }
+.dlg-x:hover { color: var(--ink); border-color: rgba(33, 30, 40, .3); background: var(--paper); transform: translateY(-1px); }
+.dlg-x:focus-visible { outline: 3px solid color-mix(in srgb, var(--violet) 34%, transparent); outline-offset: 2px; }
+.dlg.has-x > .dlg-head { padding-right: 50px; }
 .dlg { --dlg-pad: 26px; padding: var(--dlg-pad); display: grid; gap: 16px; overflow-y: auto; max-height: inherit; }
 .dlg-head { display: flex; gap: 14px; align-items: center; }
 .dlg-head h2 { font-size: 1.5rem; font-weight: 800; letter-spacing: -.02em; }
@@ -496,7 +516,7 @@ dialog[open] { animation: cardIn var(--t-mid) var(--ease) both; }
 @media (max-width: 520px) { .dlg-banner .dlg-head { padding-right: 46px; } }
 .dlg-floats { position: absolute; inset: 0; pointer-events: none; }
 .dlg-floats img { position: absolute; width: 40px; opacity: .5; filter: drop-shadow(0 6px 12px rgba(33, 30, 40, .14)); animation: drift 11s var(--ease) infinite; }
-.dlg-floats img:nth-child(1) { right: 16px; top: 8px; }
+.dlg-floats img:nth-child(1) { right: 20px; top: 54px; }
 .dlg-floats img:nth-child(2) { right: 62px; bottom: 4px; width: 32px; animation-delay: -3.5s; }
 .dlg-floats img:nth-child(3) { right: 14px; bottom: 14px; width: 24px; opacity: .38; animation-delay: -7s; }
 @media (max-width: 520px) { .dlg-floats img:nth-child(2), .dlg-floats img:nth-child(3) { display: none; } }
