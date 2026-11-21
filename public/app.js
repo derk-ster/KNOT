@@ -109,7 +109,8 @@ const state = {
   resp: null, respKey: null,
   selected: new Set(),
   skills: [],
-  pollTimer: null
+  pollTimer: null,
+  typingTimer: null
 };
 store.set('knot.clientId', state.clientId);
 
@@ -172,7 +173,26 @@ async function apiRaw(path, opts = {}) {
   if (!r.ok) { const e = new Error((d && d.error) || `Request failed (${r.status})`); if (d && d.held) e.held = true; throw e; }
   return d;
 }
-const say = t => { const l = $('#live'); l.textContent = ''; setTimeout(() => { l.textContent = t; }, 30); };
+// A confirmation has to be visible as well as announced: the live region is for screen readers, and
+// the toast is the same sentence shown on the page for a moment. Copying a link, saving a profile or
+// muting the helper all leave no trace on screen, so this is what tells the member it worked.
+let toastTimer = null;
+function say(t) {
+  const l = $('#live');
+  if (l) { l.textContent = ''; setTimeout(() => { l.textContent = t; }, 30); }
+  let box = $('#toast');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'toast';
+    box.className = 'toast';
+    box.setAttribute('role', 'status');
+    document.body.append(box);
+  }
+  box.textContent = t;
+  box.classList.add('on');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => box.classList.remove('on'), 2800);
+}
 const hideErr = sel => { const e = $(sel); if (e) e.hidden = true; };
 // my principal id, the same shape the server stamps on messages and members
 const myPid = () => state.acct ? 'a:' + state.acct.accountId : (state.sessionId ? String(state.sessionId) : null);
@@ -181,6 +201,12 @@ const myPid = () => state.acct ? 'a:' + state.acct.accountId : (state.sessionId 
 // Every dialog closes from the same corner button, so nothing is a trap. It sits on the dialog
 // itself rather than inside the scrolling form, so it stays put when a long one scrolls.
 function wireDialogClose(d) {
+  // Clicking the dark space around the card closes it, so no dialog in KNOT ever traps someone who
+  // does not want to answer it. Escape already works: this is the mouse equivalent.
+  if (!d.dataset.backdrop) {
+    d.dataset.backdrop = '1';
+    d.addEventListener('click', e => { if (e.target === d) d.close(); });
+  }
   if (!d.querySelector('.dlg') || d.querySelector('.dlg-x')) return;
   const b = document.createElement('button');
   b.type = 'button';
@@ -226,6 +252,11 @@ function askConfirm({ title, body, yes = 'Continue', no = 'Cancel', danger = fal
     $('[data-yes]', d).addEventListener('click', () => finish(true));
     d.addEventListener('close', onClose);
     d.showModal();
+    // Clicking outside the card is the same as the safe answer.
+    if (!d.dataset.backdrop) {
+      d.dataset.backdrop = '1';
+      d.addEventListener('click', e => { if (e.target === d) d.close(); });
+    }
     (danger ? $('[data-no]', d) : $('[data-yes]', d)).focus();
   });
 }
@@ -940,23 +971,41 @@ async function signOut() {
 }
 
 // resize + encode a picture entirely in the browser, so uploads stay small
-function resizeImage(file, max = 512) {
+// Shrinks a picture in this browser before it is sent. When a size limit is given the picture is
+// re-encoded until it fits, so a photo is never refused after it has already been shown.
+function resizeImage(file, max = 512, maxBytes = 0) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
-      const scale = Math.min(1, max / Math.max(img.width, img.height));
-      const c = document.createElement('canvas');
-      c.width = Math.max(1, Math.round(img.width * scale));
-      c.height = Math.max(1, Math.round(img.height * scale));
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
       URL.revokeObjectURL(url);
-      resolve(c.toDataURL('image/jpeg', 0.85));
+      const c = document.createElement('canvas');
+      const g = c.getContext('2d');
+      let limit = max, quality = 0.85;
+      const draw = () => {
+        const scale = Math.min(1, limit / Math.max(img.width, img.height));
+        c.width = Math.max(1, Math.round(img.width * scale));
+        c.height = Math.max(1, Math.round(img.height * scale));
+        g.drawImage(img, 0, 0, c.width, c.height);
+      };
+      draw();
+      let out = c.toDataURL('image/jpeg', quality);
+      // Quality first, then size: a big photo loses a little sharpness instead of the whole picture.
+      let guard = 0;
+      while (maxBytes && out.length > maxBytes && limit > 200 && guard++ < 12) {
+        if (quality > 0.55) quality -= 0.15;
+        else { limit = Math.round(limit * 0.8); quality = 0.7; draw(); }
+        out = c.toDataURL('image/jpeg', quality);
+      }
+      resolve(out);
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That file could not be read as a picture.')); };
     img.src = url;
   });
 }
+// The server keeps message pictures under 300 KB and profile pictures under 400 KB; a data URL
+// carries four characters for every three bytes.
+const IMG_LIMIT = kb => Math.floor(kb * 1024 * 4 / 3);
 
 function openProfile(opts = {}) {
   const d = $('#profileDialog');
@@ -975,7 +1024,7 @@ function openProfile(opts = {}) {
         <span class="avatar lg" id="editAvatar">${p.avatar ? `<img src="${esc(p.avatar)}" alt="">` : esc(initials(p.name || '?'))}</span>
         <div class="avatar-btns">
           <label class="btn ghost sm" for="pAvatar">Upload picture<input id="pAvatar" type="file" accept="image/png,image/jpeg,image/webp" class="sr"></label>
-          <span class="hint" id="pAvatarNote">PNG, JPEG or WebP, under 400 KB. Pictures are checked by moderation before they are shown.</span>
+          <span class="hint" id="pAvatarNote">PNG, JPEG or WebP. Big pictures are shrunk for you.</span>
         </div>
       </div>
     </div>` : ''}
@@ -999,8 +1048,11 @@ function openProfile(opts = {}) {
     <details class="optional" ${p.city || (p.availability && p.availability.length) ? 'open' : ''}><summary><span>Location and availability</span><span class="opt-open">Open</span></summary>
       <div class="field"><label for="pState">State</label><select id="pState"><option value="">Any state</option>${Object.keys(STATE_NAMES).map(k => `<option value="${k}" ${stateOf(p.city) === k ? 'selected' : ''}>${esc(STATE_NAMES[k])}</option>`).join('')}</select></div>
       <div class="field"><label for="pCitySearch">City</label>
-        <input id="pCitySearch" type="text" maxlength="40" list="pCityList" autocomplete="off" value="${esc(p.city || '')}" placeholder="Search a city, or type your own">
-        <datalist id="pCityList"></datalist>
+        <div class="combo" id="pCityCombo">
+          <input id="pCitySearch" type="text" maxlength="40" autocomplete="off" value="${esc(p.city || '')}" placeholder="Search a city, or type your own" role="combobox" aria-expanded="false" aria-controls="pCityList" aria-autocomplete="list">
+          <button type="button" class="combo-btn" id="pCityToggle" aria-expanded="false" aria-controls="pCityList" aria-label="Show the city list">${icon.chev}</button>
+          <ul class="combo-list" id="pCityList" role="listbox" aria-label="Cities" hidden></ul>
+        </div>
         <p class="hint" id="pCityHint">Pick a state to narrow the list, or type any city that is not listed.</p></div>
       <fieldset class="field"><legend>Days you are usually free</legend><div class="chips" id="pDays">${DAYS.map(x => `<label class="toggle"><input type="checkbox" value="${x}" ${(p.availability || []).includes(x) ? 'checked' : ''}><span>${cap(x.slice(0, 3))}</span></label>`).join('')}</div></fieldset>
       <fieldset class="field"><legend>Meeting preference</legend><div class="chips">${[['both', 'Either'], ['in-person', 'In person'], ['online', 'Online']].map(([v, l]) => `<label class="toggle"><input type="radio" name="pMode" value="${v}" ${p.mode === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div></fieldset>
@@ -1055,14 +1107,14 @@ function openProfile(opts = {}) {
     if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { showErr('#pErr', 'Pick a PNG, JPEG or WebP picture.'); return; }
     note.textContent = 'Checking the picture…';
     try {
-      const dataUrl = await resizeImage(file);
+      const dataUrl = await resizeImage(file, 512, IMG_LIMIT(400));
       const me = await apiRaw('/api/auth/avatar', { method: 'POST', body: JSON.stringify({ image: dataUrl }) });
       state.acct = me;
       $('#editAvatar').innerHTML = me.profile.avatar ? `<img src="${esc(me.profile.avatar)}" alt="">` : esc(initials(me.name));
       note.textContent = 'Picture saved.';
       paintHeader();
     } catch (ex) {
-      note.textContent = 'PNG, JPEG or WebP, under 400 KB. Pictures are checked by moderation before they are shown.';
+      note.textContent = 'PNG, JPEG or WebP. Big pictures are shrunk for you.';
       showErr('#pErr', ex.message);
     }
     avatarInput.value = '';
@@ -1075,18 +1127,66 @@ function openProfile(opts = {}) {
     say('Account deleted. You are now browsing as a guest.');
   });
   // State narrows the city list; the city box itself stays free text, so a place that is not on the
-  // list can still be typed and saved.
-  const stateSel = $('#pState'), cityBox = $('#pCitySearch'), cityList = $('#pCityList'), cityHint = $('#pCityHint');
-  const paintPlaces = () => {
+  // list can still be typed and saved. The list opens from the chevron beside the box or as you
+  // type, so the cities on offer are something a member can see rather than guess at.
+  const stateSel = $('#pState'), cityBox = $('#pCitySearch'), cityList = $('#pCityList'), cityHint = $('#pCityHint'), cityToggle = $('#pCityToggle');
+  const cityNames = () => placesIn(stateSel ? stateSel.value : '').sort((a, b) => a.localeCompare(b));
+  const closeCities = () => {
     if (!cityList) return;
-    const code = stateSel ? stateSel.value : '';
-    const names = placesIn(code).sort((a, b) => a.localeCompare(b));
-    cityList.innerHTML = names.map(c => `<option value="${esc(c)}"></option>`).join('');
-    if (cityHint) cityHint.textContent = code
-      ? `Major cities in ${STATE_NAMES[code] || code} are suggested. Type any other city to use it instead.`
-      : 'Pick a state to narrow the list, or type any city that is not listed.';
+    cityList.hidden = true;
+    if (cityToggle) cityToggle.setAttribute('aria-expanded', 'false');
+    if (cityBox) cityBox.setAttribute('aria-expanded', 'false');
   };
-  if (stateSel) stateSel.addEventListener('change', () => { paintPlaces(); if (cityBox) cityBox.focus(); });
+  const openCities = () => {
+    if (!cityList) return;
+    const q = (cityBox ? cityBox.value : '').trim().toLowerCase();
+    const names = cityNames().filter(c => !q || c.toLowerCase().includes(q));
+    cityList.innerHTML = names.length
+      ? names.map(c => `<li><button type="button" class="combo-item" role="option" data-city="${esc(c)}">${esc(c)}</button></li>`).join('')
+      : '<li class="combo-none">No listed city matches. Type it in and it is saved as typed.</li>';
+    cityList.hidden = false;
+    if (cityToggle) cityToggle.setAttribute('aria-expanded', 'true');
+    if (cityBox) cityBox.setAttribute('aria-expanded', 'true');
+  };
+  const paintPlaces = () => {
+    if (cityHint) cityHint.textContent = stateSel && stateSel.value
+      ? `Major cities in ${STATE_NAMES[stateSel.value] || stateSel.value} are suggested. Type any other city to use it instead.`
+      : 'Pick a state to narrow the list, or type any city that is not listed.';
+    if (cityList && !cityList.hidden) openCities();
+  };
+  if (cityList) cityList.addEventListener('click', e => {
+    const b = e.target.closest('[data-city]');
+    if (!b) return;
+    if (cityBox) { cityBox.value = b.dataset.city; cityBox.focus(); }
+    closeCities();
+  });
+  if (cityToggle) cityToggle.addEventListener('click', () => {
+    if (!cityList) return;
+    if (cityList.hidden) { openCities(); if (cityBox) cityBox.focus(); } else closeCities();
+  });
+  if (cityBox) {
+    cityBox.addEventListener('input', () => openCities());
+    cityBox.addEventListener('focus', () => openCities());
+    cityBox.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && cityList && !cityList.hidden) { e.stopPropagation(); closeCities(); }
+      if (e.key === 'ArrowDown' && cityList && !cityList.hidden) {
+        const first = cityList.querySelector('.combo-item');
+        if (first) { e.preventDefault(); first.focus(); }
+      }
+    });
+  }
+  if (cityList) {
+    cityList.addEventListener('keydown', e => {
+      const items = $$('.combo-item', cityList);
+      const at = items.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown' && at > -1) { e.preventDefault(); (items[at + 1] || items[0]).focus(); }
+      if (e.key === 'ArrowUp' && at > -1) { e.preventDefault(); (items[at - 1] || cityBox || items[0]).focus(); }
+      if (e.key === 'Escape') { closeCities(); if (cityBox) cityBox.focus(); }
+    });
+    // A click anywhere else in the dialog folds the list away again.
+    d.addEventListener('click', e => { if (!e.target.closest('#pCityCombo')) closeCities(); });
+  }
+  if (stateSel) stateSel.addEventListener('change', () => { paintPlaces(); if (cityBox) { cityBox.focus(); openCities(); } });
   paintPlaces();
   $('#profileForm').addEventListener('submit', async e => {
     e.preventDefault();
@@ -1172,7 +1272,7 @@ function openCreate() {
       ${sel.map(s => `<li>${avatarHtml(s.name, null, 'sm')}<span><strong>${esc(s.name)}</strong> <span class="meta">${esc(s.city)}</span></span></li>`).join('')}</ul>
     </fieldset>
     ${memberNote}${demoNote}
-    ${acct ? `<details class="optional"><summary>Who can find this group</summary>
+    ${acct ? `<details class="optional"><summary><span>Who can find this group</span><span class="opt-open">Open</span></summary>
       <fieldset class="field"><legend>Visibility</legend><div class="chips">
         <label class="toggle"><input type="radio" name="gVis" value="public" checked><span>Public (in Discover)</span></label>
         <label class="toggle"><input type="radio" name="gVis" value="private"><span>Private (invite link only)</span></label></div></fieldset>
@@ -1204,7 +1304,7 @@ function openCreate() {
         body.city = myProfile().city || null;
       }
       const { room, duplicate } = await api('/api/rooms', { method: 'POST', body: JSON.stringify(body) });
-      if (!duplicate) { state.selected.clear(); playKnot(); }
+      if (!duplicate) state.selected.clear();
       d.close();
       say(duplicate ? 'That group already exists, so KNOT opened it instead.' : 'Group created. Say hi and get it going.');
       location.hash = '#/room/' + room.id;
@@ -1216,47 +1316,13 @@ function openCreate() {
   });
 }
 
-// a short, quiet animation to mark the moment a group is tied
-function playKnot() {
-  if (reduceMotion()) return;
-  const c = document.createElement('canvas');
-  c.className = 'knot-flash';
-  c.setAttribute('aria-hidden', 'true');
-  const s = Math.min(560, innerWidth - 80);
-  c.width = s; c.height = s;
-  document.body.appendChild(c);
-  const ctx = c.getContext('2d');
-  const cx = s / 2, cy = s / 2, threads = 5, loops = 3;
-  let t = 0;
-  const step = () => {
-    t += 0.022;
-    ctx.clearRect(0, 0, s, s);
-    const done = t >= 1;
-    const draw = (progress) => {
-      for (let i = 0; i < threads; i++) {
-        ctx.beginPath();
-        const off = i / threads * Math.PI * 2;
-        for (let a = 0; a <= progress * loops * Math.PI * 2; a += 0.08) {
-          const r = s * 0.22 + Math.sin(a + off) * s * 0.12;
-          const x = cx + Math.cos(a + off * 1.6) * r * 0.8;
-          const y = cy + Math.sin(a + off) * r;
-          if (a === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        }
-        ctx.strokeStyle = `hsla(262 83% 58% / ${0.5 - i * 0.07})`;
-        ctx.lineWidth = 2.4;
-        ctx.stroke();
-      }
-    };
-    draw(done ? 1 : t);
-    if (done) { setTimeout(() => c.remove(), 900); return; }
-    requestAnimationFrame(step);
-  };
-  step();
-}
-
 // ---------- ROOM ----------
 let roomState = null;
-function stopPoll() { if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; } roomState = null; }
+function stopPoll() {
+  if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+  if (state.typingTimer) { clearInterval(state.typingTimer); state.typingTimer = null; }
+  roomState = null;
+}
 function fmtTime(ts) {
   const d = new Date(ts);
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -1270,7 +1336,7 @@ async function renderRoom(id) {
     $('#roomBody').innerHTML = `<div class="empty"><img src="assets/art/puzzle_piece.png" width="110" height="112" alt="" class="empty-art"><div><h2>Group not found</h2><p>${esc(ex.message)}</p><a class="btn ghost" href="#/groups">Back to My groups</a></div></div>`;
     return;
   }
-  roomState = { id, room, lastCount: 0 };
+  roomState = { id, room, lastCount: 0, typing: [] };
   paintRoom(room);
   if (room.isMember) {
     state.pollTimer = setInterval(async () => {
@@ -1280,31 +1346,78 @@ async function renderRoom(id) {
         if (roomState && roomState.id === id) paintRoom(fresh, true);
       } catch { /* next tick will retry */ }
     }, 3500);
+    // Who is typing changes far more often than the message list, so it has its own quiet poll.
+    state.typingTimer = setInterval(pollTyping, 1500);
+    pollTyping();
   }
+}
+
+// The typing note is presence, not history: it is asked for separately and drawn separately, so a
+// repaint of the chat never swallows it and it never touches the messages.
+async function pollTyping() {
+  if (!roomState || document.hidden) return;
+  const id = roomState.id;
+  try {
+    const out = await api(`/api/rooms/${encodeURIComponent(id)}/typing`);
+    if (!roomState || roomState.id !== id) return;
+    roomState.typing = Array.isArray(out.typing) ? out.typing : [];
+    paintTyping();
+  } catch { /* presence is a courtesy; the room works without it */ }
+}
+
+// "Sam is typing", "Sam and Priya are typing", "Sam and 2 others are typing". KNOT AI and the demo
+// profiles are named too, so the dots always say who they belong to.
+function paintTyping() {
+  const line = $('#typingLine'), who = $('#typingWho');
+  if (!line || !who) return;
+  const list = (roomState && roomState.typing) || [];
+  const names = [];
+  for (const t of list) if (!names.includes(t.name)) names.push(t.name);
+  let text = '';
+  if (names.length === 1) {
+    const ai = list.every(t => t.ai);
+    text = ai ? 'KNOT AI is typing' : names[0] + ' is typing';
+  } else if (names.length === 2) text = names[0] + ' and ' + names[1] + ' are typing';
+  else if (names.length > 2) text = names[0] + ' and ' + (names.length - 1) + ' others are typing';
+  if (who.textContent !== text) who.textContent = text;
+  line.hidden = !text;
 }
 
 // The commands the "/" palette offers in a group chat. They are handled in this file and never
 // posted as text: picking one fills the message box, and sending turns it into a plain message
 // plus an askAi flag.
+// Every command has a job, whether it is picked from the palette or typed by hand: /ai takes a
+// question, /plan and /catchup carry their own prompt, and /help shows the list again. The text a
+// member sends stays visible in the chat with its command, so the room can see what was asked.
 const AI_COMMANDS = [
   { key: 'ai', label: 'Ask KNOT AI', hint: 'Ask a question about this group', fill: '/ai ' },
-  { key: 'plan', label: 'Plan the next steps', hint: 'KNOT AI suggests what the group should do next', fill: '/ai Plan the next steps for this group.' },
-  { key: 'catchup', label: 'Catch me up', hint: 'KNOT AI sums up what the group has decided', fill: '/ai Catch me up on what this group has decided so far.' },
+  { key: 'plan', label: 'Plan the next steps', hint: 'KNOT AI suggests what the group should do next', fill: '/plan', prompt: 'Plan the next steps for this group.' },
+  { key: 'catchup', label: 'Catch me up', hint: 'KNOT AI sums up what the group has decided', fill: '/catchup', prompt: 'Catch me up on what this group has decided so far.' },
   { key: 'help', label: 'What can KNOT AI do?', hint: 'Show these commands again', fill: null }
 ];
 
-function memberCard(m, room) {
+// Every member is drawn as the same card, in list order, so the list reads as one group: the
+// people are numbered Member #1, Member #2, and the helper is labeled by name because it is not a
+// person and never takes a seat.
+function memberCard(m, room, seat) {
   const me = myProfile();
   const isMod = room.myRole === 'owner' || room.myRole === 'moderator';
   // KNOT AI is listed with the members, but it is a helper and not a person: nothing to moderate,
   // nothing to block, and it never counts towards the member cap.
   if (m.ai) {
+    // KNOT AI is a helper, not a member: nobody can remove, ban or promote it. The owner's control
+    // over it is the AI setting, which mutes it for the whole group on the server. The button is a
+    // shortcut to that same setting, and the helper stays listed either way.
+    const mute = room.myRole === 'owner'
+      ? `<button type="button" class="btn ghost sm ai-mute" data-ai-toggle="${room.aiMode === 'off' ? 'on-demand' : 'off'}">${room.aiMode === 'off' ? 'Unmute' : 'Mute'}</button>`
+      : '';
     return `<li class="member ai-member">${markImg(30)}
       <span class="m-main"><strong>KNOT AI</strong> <span class="role-chip ai">AI</span>
-      <span class="m-detail"><span class="meta">${esc(m.modeText || 'Helper')}</span></span></span></li>`;
+      <span class="m-detail"><span class="meta">${esc(m.modeText || 'Helper')}</span></span></span>${mute}</li>`;
   }
   const canAct = !m.you && (m.demo || m.id);
   const actions = [];
+  if (seat) actions.push(`<span class="role-chip num">Member #${seat}</span>`);
   if (m.you) actions.push('<span class="role-chip">You</span>');
   if (m.role === 'owner') actions.push('<span class="role-chip owner">Owner</span>');
   else if (m.role === 'moderator') actions.push('<span class="role-chip">Mod</span>');
@@ -1378,6 +1491,7 @@ function paintRoom(room, isPoll) {
       <div class="chat msgs" id="msgLog" role="log" aria-live="polite" aria-label="Group chat">
         ${msgs.length ? msgs.map(msgBubble).join('') : `<div class="bubble bot">The group is tied. Say hi and get things moving.</div>`}
       </div>
+      ${room.isMember ? `<div class="typing-line" id="typingLine" role="status" aria-live="polite" hidden><span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="typing-who" id="typingWho"></span></div>` : ''}
       ${room.isMember ? `
       <form id="msgForm" class="chat-form" novalidate>
         <label class="sr" for="msgInput">Message</label>
@@ -1385,7 +1499,7 @@ function paintRoom(room, isPoll) {
           <div class="cmd-pop" id="cmdPop" role="listbox" aria-label="KNOT AI commands" hidden></div>
           <div class="attach-preview" id="attachPreview" hidden>
             <img id="attachThumb" alt="The picture you are about to send">
-            <span class="attach-note">Ready to send. Pictures are checked by moderation.</span>
+            <span class="attach-note">Ready to send.</span>
             <button type="button" class="attach-x" id="attachClear" aria-label="Remove the picture">${icon.x}</button>
           </div>
           <input id="msgInput" type="text" maxlength="2000" autocomplete="off" placeholder="${aiOn ? 'Message the group, or type / to ask KNOT AI' : 'Message the group'}" aria-describedby="chatHint">
@@ -1402,7 +1516,7 @@ function paintRoom(room, isPoll) {
     </div>
     <aside class="members-col" aria-labelledby="mh">
       <h2 id="mh" class="small-title">Members</h2>
-      <ul class="member-list">${room.members.map(m => memberCard(m, room)).join('')}</ul>
+      <ul class="member-list">${(() => { let seat = 0; return room.members.map(m => memberCard(m, room, m.ai ? 0 : ++seat)).join(''); })()}</ul>
       ${room.inviteCode ? `<div class="invite-box"><h3 class="small-title">Invite link</h3><p class="hint">Share this so people can join directly.</p><div class="invite-row"><input id="inviteLink" readonly value="${esc(location.origin + '/#/join/' + room.inviteCode)}"><button type="button" class="btn ghost sm" id="copyInvite">Copy</button></div></div>` : ''}
       ${isMod && room.bans && room.bans.length ? `<div class="invite-box"><h3 class="small-title">Removed people</h3><ul class="ban-list">${room.bans.map(b => `<li><span>${esc(b.name || 'Someone')}</span><button type="button" class="btn ghost sm" data-unban="${esc(b.pid)}">Let back in</button></li>`).join('')}</ul></div>` : ''}
     </aside>
@@ -1414,6 +1528,23 @@ function paintRoom(room, isPoll) {
     if (draft) inp.value = draft;
     if (wasTyping) { inp.focus(); try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch { /* older browsers */ } }
   }
+  // Whoever was typing is still typing: the line belongs to the room, not to a repaint.
+  paintTyping();
+  // This browser's own note: "I am typing" while the box has text, refreshed as the member keeps
+  // typing, dropped when they stop, send or leave. The server decides who is told.
+  let typingSent = 0, typingIdle = null;
+  const tellTyping = on => { apiRaw(`/api/rooms/${encodeURIComponent(room.id)}/typing`, { method: 'POST', body: JSON.stringify({ typing: on }) }).catch(() => {}); };
+  const noteTyping = () => {
+    const box = $('#msgInput');
+    const has = !!(box && box.value.trim());
+    if (typingIdle) { clearTimeout(typingIdle); typingIdle = null; }
+    if (!has) { if (typingSent) { typingSent = 0; tellTyping(false); } return; }
+    const now = Date.now();
+    if (now - typingSent > 2500) { typingSent = now; tellTyping(true); }
+    typingIdle = setTimeout(() => { typingSent = 0; tellTyping(false); }, 3500);
+  };
+  if (inp) inp.addEventListener('input', noteTyping);
+  const stopTyping = () => { if (typingIdle) { clearTimeout(typingIdle); typingIdle = null; } if (typingSent) { typingSent = 0; tellTyping(false); } };
   // wiring
   // ---- pictures ----
   // A photo can be pasted or picked. It is shrunk in this browser before it is posted, so what
@@ -1434,7 +1565,7 @@ function paintRoom(room, isPoll) {
   const takeFile = async (file) => {
     const errBox = $('#msgErr');
     if (!file) return;
-    try { setImage(await resizeImage(file, 1024)); }
+    try { setImage(await resizeImage(file, 1024, IMG_LIMIT(300))); }
     catch (ex) { if (errBox) { errBox.innerHTML = icon.alert + `<span>${esc(ex.message)}</span>`; errBox.hidden = false; } }
   };
   const clearBtn = $('#attachClear');
@@ -1454,6 +1585,7 @@ function paintRoom(room, isPoll) {
     text = text.trim();
     const image = opts.image || pendingImage;
     if (!text && !image) return;
+    stopTyping();
     const input = $('#msgInput'); if (input) { input.value = ''; input.focus(); }
     if (image) clearImage();
     // optimistic append, replaced on next poll
@@ -1461,8 +1593,10 @@ function paintRoom(room, isPoll) {
     if (log2) { log2.insertAdjacentHTML('beforeend', msgBubble({ id: 'tmp', authorId: myPid(), authorName: myProfile().name, text, image, kind: 'user', ts: new Date().toISOString() })); log2.scrollTop = log2.scrollHeight; }
     const body = { text, clientMsgId: uid(), authorId: myPid(), authorName: myProfile().name };
     if (image) body.image = image;
-    // Asking KNOT AI is a plain message plus this flag. The "/" is never sent.
+    // Asking KNOT AI is a plain message plus this flag. The message keeps its "/ai" so the room can
+    // see what was asked, and the question itself travels beside it for the helper to answer.
     if (opts.askAi) body.askAi = true;
+    if (opts.askAi && opts.aiQuestion) body.aiQuestion = opts.aiQuestion;
     try {
       const out = await api(`/api/rooms/${encodeURIComponent(room.id)}/messages`, { method: 'POST', body: JSON.stringify(body) });
       // Demo profiles and KNOT AI answer in the same request, so their lines land without a poll.
@@ -1508,7 +1642,8 @@ function paintRoom(room, isPoll) {
       try { cmdInput.setSelectionRange(cmdInput.value.length, cmdInput.value.length); } catch { /* older browsers */ }
     }
   };
-  // A typed command, or null when this is an ordinary message.
+  // A typed command, or null when this is an ordinary message. Every command answers when it is
+  // typed on its own: /plan and /catchup carry their own prompt, and only /ai needs a question.
   const parseCommand = (raw) => {
     if (!raw.startsWith('/')) return null;
     const body = raw.slice(1).trim();
@@ -1516,9 +1651,10 @@ function paintRoom(room, isPoll) {
     const sp = body.search(/\s/);
     const key = (sp === -1 ? body : body.slice(0, sp)).toLowerCase();
     const rest = sp === -1 ? '' : body.slice(sp).trim();
-    if (!AI_COMMANDS.some(c => c.key === key)) return { unknown: key };
+    const c = AI_COMMANDS.find(x => x.key === key);
+    if (!c) return { unknown: key };
     if (key === 'help') return { help: true };
-    return { question: rest };
+    return { key, question: rest || c.prompt || '' };
   };
   const runCommand = (cmd) => {
     const errBox = $('#msgErr');
@@ -1528,7 +1664,8 @@ function paintRoom(room, isPoll) {
     if (cmd.unknown) { err(`There is no /${cmd.unknown} command. Type / to see what KNOT AI can do.`); return; }
     if (room.aiMode === 'off') { err('KNOT AI is off in this group. The owner can turn it on in group settings.'); return; }
     if (!cmd.question) { err('Add your question after /ai, for example /ai what should we do first?'); return; }
-    sendMsg(cmd.question, { askAi: true });
+    // The command stays in the message the room sees; only the question goes to the helper.
+    sendMsg('/' + cmd.key + ' ' + cmd.question, { askAi: true, aiQuestion: cmd.question });
   };
   if (cmdInput && cmdPop) {
     cmdInput.addEventListener('input', () => {
@@ -1601,6 +1738,16 @@ function paintRoom(room, isPoll) {
     modAct('ban', { pid: b.dataset.ban, reason: 'Removed by a moderator' }, 'Banned. They cannot rejoin unless you let them back in.');
   }));
   $$('[data-unban]', body).forEach(b => b.addEventListener('click', () => modAct('unban', { pid: b.dataset.unban }, 'They can join again.')));
+  // Muting KNOT AI is a group setting, saved on the server, not a member action: the helper is
+  // still listed and still answers nothing until it is turned back on.
+  $$('[data-ai-toggle]', body).forEach(b => b.addEventListener('click', async () => {
+    const next = b.dataset.aiToggle;
+    try {
+      await apiRaw(`/api/rooms/${encodeURIComponent(room.id)}`, { method: 'PATCH', body: JSON.stringify({ aiMode: next }) });
+      say(next === 'off' ? 'KNOT AI is muted in this group.' : 'KNOT AI can answer again when a member asks.');
+      renderRoom(room.id);
+    } catch (ex) { say(ex.message); }
+  }));
   $$('[data-role]', body).forEach(b => b.addEventListener('click', () => modAct('promote', { pid: b.dataset.role, role: b.dataset.roletarget || 'member' }, 'Role updated.')));
   $$('[data-owner]', body).forEach(b => b.addEventListener('click', async () => {
     if (!await askConfirm({ title: 'Make this member the owner?', body: 'You become a regular member and lose the owner controls.', yes: 'Transfer ownership', no: 'Cancel' })) return;
@@ -1632,7 +1779,6 @@ function openImage(src, alt) {
   d.innerHTML = `<div class="dlg img-dlg"><img src="${esc(src)}" alt="${esc(alt || 'Picture')}"><p class="hint">Click outside the picture, press Escape, or use the X to close.</p></div>`;
   d.showModal();
   wireDialogClose(d);
-  d.addEventListener('click', (e) => { if (e.target === d) d.close(); }, { once: true });
 }
 document.addEventListener('click', (e) => {
   const pic = e.target.closest && e.target.closest('[data-pic]');
@@ -1660,7 +1806,7 @@ function openSettings(room) {
       <p class="hint"><strong>Only when asked</strong> keeps the room quiet: KNOT AI answers a member who types /ai, and never speaks otherwise. <strong>Replies to everyone</strong> answers after every message. Members always see which one is on. Default is Off.</p>
     </fieldset>
     ${isOwner ? `
-    <details class="optional"><summary>Visibility and joining</summary>
+    <details class="optional"><summary><span>Visibility and joining</span><span class="opt-open">Open</span></summary>
       <fieldset class="field"><legend>Visibility</legend><div class="chips">
         <label class="toggle"><input type="radio" name="sVis" value="public" ${room.visibility === 'public' ? 'checked' : ''}><span>Public (in Discover)</span></label>
         <label class="toggle"><input type="radio" name="sVis" value="private" ${room.visibility !== 'public' ? 'checked' : ''}><span>Private</span></label></div></fieldset>
@@ -1768,7 +1914,11 @@ function openHelp() {
 
 function paintHelpLog() {
   const box = $('#helpLog'); if (!box) return;
-  box.innerHTML = helpLog.map(m => `<p class="help-bubble ${m.role === 'user' ? 'me' : 'bot'}${m.wait ? ' wait' : ''}">${esc(m.text)}${m.go ? `<button type="button" class="help-go" data-go="${esc(m.go.hash)}">${esc(m.go.label)}</button>` : ''}</p>`).join('');
+  // While help is answering, its bubble is the same three dots the rest of KNOT uses, so a wait
+  // always looks like a wait.
+  box.innerHTML = helpLog.map(m => m.wait
+    ? '<p class="help-bubble bot wait" aria-label="Help is typing"><span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span></p>'
+    : `<p class="help-bubble ${m.role === 'user' ? 'me' : 'bot'}">${esc(m.text)}${m.go ? `<button type="button" class="help-go" data-go="${esc(m.go.hash)}">${esc(m.go.label)}</button>` : ''}</p>`).join('');
   box.scrollTop = box.scrollHeight;
 }
 
@@ -1788,7 +1938,7 @@ async function askHelp(text) {
   if (!text || state.helpBusy) return;
   const input = $('#helpInput'); if (input) input.value = '';
   helpLog.push({ role: 'user', text });
-  helpLog.push({ role: 'bot', text: 'One moment.', wait: true });
+  helpLog.push({ role: 'bot', text: '', wait: true });
   state.helpBusy = true; paintHelpLog();
   try {
     const out = await apiRaw('/api/ai/help', {

@@ -482,6 +482,45 @@ test('messages: a client cannot post as KNOT AI', async () => {
   assert.ok(list.some(m => m.text === 'pretending to be the assistant' && m.kind === 'user'), 'the message posted as an ordinary member message');
 });
 
+test('typing: members see each other typing, never themselves, and outsiders see nothing', async () => {
+  const owner = jar();
+  await post('/api/session', {}, owner);
+  const { room } = await (await post('/api/rooms', { requestId: 'req-type', title: 'Typing lab', goal: 'Show who is typing.', memberIds: [] }, owner)).json();
+  const other = jar();
+  await post('/api/session', {}, other);
+  const joined = await (await post('/api/rooms/join', { code: room.inviteCode }, other)).json();
+  assert.equal(joined.room.id, room.id);
+  // nobody is typing in a fresh room
+  const quiet = await (await get(`/api/rooms/${room.id}/typing`, owner)).json();
+  assert.deepEqual(quiet.typing, []);
+  // the second member starts typing: the owner sees their name, they do not see themselves
+  assert.equal((await post(`/api/rooms/${room.id}/typing`, { typing: true }, other)).status, 200);
+  const seen = await (await get(`/api/rooms/${room.id}/typing`, owner)).json();
+  assert.equal(seen.typing.length, 1);
+  assert.ok(seen.typing[0].name, 'the typing note carries a name from the session');
+  assert.deepEqual((await (await get(`/api/rooms/${room.id}/typing`, other)).json()).typing, [], 'you never see yourself typing');
+  // stopping clears it
+  await post(`/api/rooms/${room.id}/typing`, { typing: false }, other);
+  assert.deepEqual((await (await get(`/api/rooms/${room.id}/typing`, owner)).json()).typing, []);
+  // a name in the body is ignored: presence comes from the session
+  await post(`/api/rooms/${room.id}/typing`, { typing: true, name: 'NotMe' }, other);
+  const named = await (await get(`/api/rooms/${room.id}/typing`, owner)).json();
+  assert.ok(!named.typing.some(t => t.name === 'NotMe'), 'a client cannot claim another name');
+  await post(`/api/rooms/${room.id}/typing`, { typing: false }, other);
+  // KNOT AI is a helper, not a member: it can never be kicked, banned or promoted
+  const ai = (await (await get(`/api/rooms/${room.id}`, owner)).json()).room.members.find(m => m.ai);
+  assert.ok(ai && ai.id === 'knot-ai');
+  for (const action of ['kick', 'ban', 'promote', 'transfer']) {
+    const r = await post(`/api/rooms/${room.id}/${action}`, { pid: 'knot-ai' }, owner);
+    assert.equal(r.status, 400, action + ' on KNOT AI is refused');
+    assert.match((await r.json()).error, /helper/i, 'the refusal explains what KNOT AI is');
+  }
+  // muting is a group setting, saved on the server, and the helper stays listed
+  const muted = await (await patch(`/api/rooms/${room.id}`, { aiMode: 'off' }, owner)).json();
+  assert.equal(muted.room.aiMode, 'off');
+  assert.ok(muted.room.members.some(m => m.ai), 'a muted helper is still listed for the client');
+});
+
 test('help bot: a guest is pointed at sign in, a member is offered the page', async () => {
   const guest = jar();
   const ask = async (j, q, context) => (await post('/api/ai/help', { history: [{ role: 'user', content: q }], context }, j)).json();

@@ -10,7 +10,7 @@ const crypto = require('crypto');
 require('./lib/env');
 const store = require('./lib/store');
 const { finderTurn, helpTurn, interpretGoal, roomAssistant } = require('./lib/ai');
-const { demoReply } = require('./lib/demo');
+const { demoReply, pickSpeaker } = require('./lib/demo');
 const llm = require('./lib/llm');
 const { examplesFor } = require('./lib/examples');
 const guide = require('./lib/guide');
@@ -33,6 +33,36 @@ function limited(req, bucket = 'ai', max = 30, windowMs = 60000) {
   if (arr.length >= max) { hits.set(k, arr); return false; }
   arr.push(now); hits.set(k, arr); return true;
 }
+// ---------- who is typing ----------
+// A typing note is worth a few seconds, so it lives in this process and is never written to the
+// store: no row, no cleanup job, nothing left behind when a browser closes. A note always means a
+// line is coming, so the bots and KNOT AI are marked here while their reply is being written, and a
+// member's note is refreshed by their own browser as they type and dropped when they stop.
+const TYPING_TTL = 7000;
+const typingNow = new Map(); // roomId -> Map(pid -> { pid, name, ai, demo, at })
+function setTyping(roomId, pid, name, extra) {
+  let m = typingNow.get(roomId);
+  if (!m) { m = new Map(); typingNow.set(roomId, m); }
+  m.set(pid, { pid, name, ai: !!(extra && extra.ai), demo: !!(extra && extra.demo), at: Date.now() });
+}
+function clearTyping(roomId, pid) {
+  const m = typingNow.get(roomId);
+  if (!m) return;
+  m.delete(pid);
+  if (!m.size) typingNow.delete(roomId);
+}
+function typingIn(roomId, exceptPid) {
+  const m = typingNow.get(roomId);
+  if (!m) return [];
+  const now = Date.now(), out = [];
+  for (const [pid, t] of [...m]) {
+    if (now - t.at > TYPING_TTL) { m.delete(pid); continue; }
+    if (pid === exceptPid) continue; // you never see yourself typing
+    out.push({ name: t.name, ai: t.ai, demo: t.demo });
+  }
+  return out;
+}
+
 function send(res, code, body) {
   const data = JSON.stringify(body);
   res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
@@ -324,10 +354,11 @@ async function api(req, res, url) {
       if (!magicOk) return send(res, 400, { error: 'That file is not a real picture. Export it as PNG, JPEG or WebP and try again.' });
       if (Math.floor(match[2].length * 3 / 4) > 400 * 1024) return send(res, 413, { error: 'Keep the picture under 400 KB.' });
       const mod = await openai.moderateImage(img);
-      if (mod && mod.flagged) {
+      const refusal = openai.imageRefusal(mod);
+      if (refusal) {
         await store.updateAccount(user.accountId, { avatar: null, avatarStatus: 'rejected' });
-        await store.addReport({ reporterUser: user, roomId: null, targetPid: 'a:' + user.accountId, reason: 'Automatic photo moderation', details: 'Profile picture flagged as: ' + mod.categories.join(', '), status: 'open' }).catch(() => {});
-        return send(res, 422, { error: 'That picture was flagged by moderation, so KNOT cannot use it. Pick a different photo.' });
+        await store.addReport({ reporterUser: user, roomId: null, targetPid: 'a:' + user.accountId, reason: 'Automatic photo moderation', details: 'Profile picture refused as: ' + refusal.join(', '), status: 'open' }).catch(() => {});
+        return send(res, 422, { error: 'That picture cannot be used here. Pick a different one.' });
       }
       const account = await store.updateAccount(user.accountId, { avatar: img, avatarStatus: mod ? 'approved' : 'pending' });
       return send(res, 200, mePayload(await store.ensureUser(user._sid), account));
@@ -507,7 +538,9 @@ async function api(req, res, url) {
         id: crypto.randomBytes(5).toString('hex'), inviteCode: crypto.randomBytes(12).toString('base64url'),
         requestId, title, goal, category: str(b.category, 40) || null,
         visibility, joinMode, capacity, onlineOnly: !!b.onlineOnly, city: str(b.city, 60) || null,
-        ageScope, demo: !user.accountId, aiMode: 'off',
+        // A demo sandbox has no owner to switch the helper on, so it starts the quiet way: KNOT AI
+        // answers a member who asks it and never speaks on its own.
+        ageScope, demo: !user.accountId, aiMode: user.accountId ? 'off' : 'on-demand',
         ownerUserId: user.accountId ? null : user.id, ownerAccountId: user.accountId || null,
         ownerName: user.name, ownerAgeCategory: account ? account.ageCategory : null,
         legacyClientId: str(b.clientId, 80), demoMembers: members, description: desc || null
@@ -555,6 +588,20 @@ async function api(req, res, url) {
       const msgs = await store.listMessagesAfter(room, url.searchParams.get('after'));
       return send(res, 200, { messages: msgs });
     }
+    // Who else in this room is typing right now. Members only: a previewer sees no presence, and a
+    // member never sees their own note. Names come from the store, never from the request body.
+    if (m === 'GET' && parts[2] === 'typing') {
+      return send(res, 200, { typing: typingIn(room.id, myPid) });
+    }
+    // The browser's own note: "I am typing" while the member types, "I stopped" when the box is
+    // cleared, the message is sent or the room is left. Nothing else is stored.
+    if (m === 'POST' && parts[2] === 'typing') {
+      if (!limited(req, 'typing', 120)) return send(res, 200, { typing: [] });
+      const b = await readBody(req).catch(() => ({}));
+      if (b && b.typing === false) clearTyping(room.id, myPid);
+      else setTyping(room.id, myPid, user2.name);
+      return send(res, 200, { ok: true });
+    }
     if (m === 'POST' && parts[2] === 'messages') {
       if (!limited(req, 'msg', 30)) return send(res, 429, { error: 'Slow down a little and try again in a minute.' });
       let b; try { b = await readBody(req, 1024 * 1024); } catch { return send(res, 413, { error: 'That picture is too large. Use one under 300 KB.' }); }
@@ -572,10 +619,12 @@ async function api(req, res, url) {
           || (match[1] === 'webp' && head.slice(0, 4).toString() === 'RIFF');
         if (!magicOk) return send(res, 400, { error: 'That file is not a real picture. Export it as PNG, JPEG or WebP and try again.' });
         if (Math.floor(match[2].length * 3 / 4) > 300 * 1024) return send(res, 413, { error: 'Keep pictures under 300 KB.' });
-        const imgMod = await openai.moderateImage(rawImage);
-        if (imgMod && imgMod.flagged) {
-          await store.addReport({ reporterUser: user2, roomId: room.id, targetPid: myPid, reason: 'Automatic photo moderation', details: 'Picture in a group flagged as: ' + imgMod.categories.join(', '), status: 'open' }).catch(() => {});
-          return send(res, 422, { error: 'That picture was flagged by moderation, so KNOT cannot post it. Try a different one.' });
+        // Light touch: only a picture that is illegal or sexualises a minor is refused. Everything
+        // else is posted, and a failed check never blocks a member's photo.
+        const imgMod = openai.imageRefusal(await openai.moderateImage(rawImage));
+        if (imgMod) {
+          await store.addReport({ reporterUser: user2, roomId: room.id, targetPid: myPid, reason: 'Automatic photo moderation', details: 'Picture in a group refused as: ' + imgMod.join(', '), status: 'open' }).catch(() => {});
+          return send(res, 422, { error: 'That picture cannot be posted here. Try a different one.' });
         }
         image = rawImage;
       }
@@ -598,31 +647,43 @@ async function api(req, res, url) {
         authorName: user2.name, text, image, clientMsgId: str(b.clientMsgId, 60) || null, kind: 'user'
       });
       const replies = [];
+      // The message arrived, so the member is no longer typing.
+      clearTyping(room.id, myPid);
       // The fictional demo profiles answer, so a sandbox group is a chat and not a dead room. The
       // server picks who speaks and writes the line, and it is stored as kind 'demo' so the room
-      // can label it. The client never authors these.
-      if (!msg.duplicate && (room.demoMembers || []).length) {
+      // can label it. The client never authors these. The speaker is marked as typing while the
+      // line is written, so the room shows the same dots a member gets.
+      // A member who asked KNOT AI gets the helper's answer, not a demo profile's: the demo voices
+      // stay quiet for that message so the two never answer over each other.
+      if (!msg.duplicate && !askAi && (room.demoMembers || []).length) {
+        const speaker = pickSpeaker(room);
+        if (speaker) setTyping(room.id, 'demo:' + speaker.name, speaker.name, { demo: true });
         try {
           const out = await demoReply({ room: { ...room, messages: [...(room.messages || []), msg] }, lastText: text });
           if (out && out.text) replies.push(await store.addMessage(room, { authorName: out.name, text: out.text, kind: 'demo' }));
-        } catch { /* the demo is optional; the member message already posted */ }
+        } catch { /* the demo is optional; the member message already posted */ } finally { if (speaker) clearTyping(room.id, 'demo:' + speaker.name); }
       }
       const history = (room.messages || []).slice(-6).map(x => ({ role: x.kind === 'assistant' ? 'assistant' : 'user', content: x.text }));
       // The member asked KNOT AI something directly, so it answers that question rather than the
       // room in general. Only ever one AI line per message, never as a human.
       if (askAi && !msg.duplicate) {
+        // The room sees "/ai what should we do first?"; the helper is asked only the question that
+        // followed the command, so the command word never becomes part of the prompt.
+        const aiQuestion = (str(b.aiQuestion, 500) || text.replace(/^\/[a-z]+\s*/i, '')).trim() || text;
+        setTyping(room.id, 'knot-ai', 'KNOT AI', { ai: true });
         try {
-          const out = await roomAssistant({ room, meProfile: null, question: text, history });
+          const out = await roomAssistant({ room, meProfile: null, question: aiQuestion, history });
           replies.push(await store.addMessage(room, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' }));
-        } catch { /* AI is optional; the member message already posted */ }
+        } catch { /* AI is optional; the member message already posted */ } finally { clearTyping(room.id, 'knot-ai'); }
       }
       // ai_mode 'on': after each member message, KNOT AI posts one short reply (never as a human).
       // Skipped when the member already asked it something, so it never answers twice.
       if (room.aiMode === 'on' && !askAi && !msg.duplicate) {
+        setTyping(room.id, 'knot-ai', 'KNOT AI', { ai: true });
         try {
           const out = await roomAssistant({ room, meProfile: null, question: 'Respond briefly to the latest message and move the group forward.', history });
           replies.push(await store.addMessage(room, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' }));
-        } catch { /* AI is optional; the member message already posted */ }
+        } catch { /* AI is optional; the member message already posted */ } finally { clearTyping(room.id, 'knot-ai'); }
       }
       return send(res, 201, { message: msg, replies });
     }
@@ -631,9 +692,17 @@ async function api(req, res, url) {
       return send(res, 200, buildAssist({ goal: room.goal, members: pub.members }));
     }
     // ---- moderation controls (owner or moderator only) ----
+    // KNOT AI is a helper, not a member: it holds no seat, so it can never be removed, banned or
+    // given a role. Its one control is the AI setting, which mutes it for the group on the server.
+    const notAHelper = (pid) => {
+      if (pid !== 'knot-ai') return false;
+      send(res, 400, { error: 'KNOT AI is a helper, not a member, so it cannot be removed or given a role. Turn it off in group settings to mute it for the group.' });
+      return true;
+    };
     if (canMod && m === 'POST' && parts[2] === 'kick') {
       const b = await readBody(req);
       const pid = str(b.pid, 80);
+      if (notAHelper(pid)) return;
       const target = room.members.find(x => x.pid === pid);
       if (!target) return send(res, 404, { error: 'That member is not in this group.' });
       if (target.role === 'owner') return send(res, 403, { error: 'The owner cannot be removed.' });
@@ -644,6 +713,7 @@ async function api(req, res, url) {
     if (canMod && m === 'POST' && parts[2] === 'ban') {
       const b = await readBody(req);
       const pid = str(b.pid, 80);
+      if (notAHelper(pid)) return;
       const target = room.members.find(x => x.pid === pid);
       if (!target) return send(res, 404, { error: 'That member is not in this group.' });
       if (target.role === 'owner') return send(res, 403, { error: 'The owner cannot be banned.' });
@@ -664,6 +734,7 @@ async function api(req, res, url) {
     if (myRole === 'owner' && m === 'POST' && parts[2] === 'promote') {
       const b = await readBody(req);
       const pid = str(b.pid, 80);
+      if (notAHelper(pid)) return;
       if (!room.members.some(x => x.pid === pid)) return send(res, 404, { error: 'Pick a current member.' });
       const role = b.role === 'moderator' ? 'moderator' : 'member';
       await store.setMemberRole(room, pid, role);
@@ -673,6 +744,7 @@ async function api(req, res, url) {
     if (myRole === 'owner' && m === 'POST' && parts[2] === 'transfer') {
       const b = await readBody(req);
       const pid = str(b.pid, 80);
+      if (notAHelper(pid)) return;
       if (!room.members.some(x => x.pid === pid)) return send(res, 404, { error: 'Pick a current member.' });
       await store.transferOwnership(room.id, pid);
       await store.setMemberRole(room, myPid, 'member');
