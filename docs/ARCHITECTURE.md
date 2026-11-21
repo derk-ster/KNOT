@@ -26,7 +26,6 @@ public/
   index.html         single shell page (SPA)
   app.js             entire frontend: hash router, views, polling, dialogs
   styles.css         brand tokens + all styling (CSS variables; do not redesign)
-  helper.js          on-page helper widget
   assets/art|fonts   optimized web copies of the Media/ pack (originals untouched)
 test/                match.test.js (matcher rules) + api.test.js (full API, temp DB)
 bin/                 lint.js (syntax check), db-check.js (DATABASE_URL verification)
@@ -50,4 +49,6 @@ docs/                SETUP, TEAM_WORKFLOW, DEMO, ARCHITECTURE
 
 ## Deployment
 
-Vercel, framework preset **Other** (correct for this stack): static `public/` + one Node serverless function (`api/[...path].js`). Env vars `DATABASE_URL` (Supabase Postgres) and optionally `GROQ_API_KEY`. Production deploys from `main`.
+Vercel, framework preset **Other** (correct for this stack): static `public/` + one Node serverless function (`api/[...path].js`). Env vars `DATABASE_URL` (Supabase Postgres) and optionally `OPENAI_API_KEY` with `OPENAI_MODEL` and `OPENAI_FAST_MODEL` (the Groq fallback uses `GROQ_API_KEY`). Scope variables to every environment you demo from: Production-only variables are not passed to Preview deployments. Production deploys from `main`.
+
+The function's `maxDuration` is 10s, so any outbound call must abort below that. `lib/openai.js` keeps its chat and image moderation timeouts under 10s for this reason. Raising one above the other reintroduces a server-side kill that users see as a generic failure.

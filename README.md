@@ -18,7 +18,7 @@ Use `PORT=4000 node server.js` for another port. To reset local data, stop the s
 
 The repo is Vercel-ready: `public/` is served as static files and `api/[...path].js` runs the same API as `server.js`.
 1. Import the GitHub repo in Vercel (no build command needed; `vercel.json` sets the output folder).
-2. Optional AI: add `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`, `OPENAI_FAST_MODEL`) under Project Settings → Environment Variables (never in the repo), then redeploy.
+2. Optional AI: add `OPENAI_API_KEY` together with `OPENAI_MODEL` and `OPENAI_FAST_MODEL` under Project Settings → Environment Variables (never in the repo), then redeploy. All three are needed: a key without the model names has no default to fall back on. Scope them to every environment you demo from, because Production-only variables are not passed to Preview deployments.
 3. For shared data, add `DATABASE_URL` (Supabase Postgres; the schema is created automatically, additively only). Without it, Vercel functions cannot keep files and **groups and chat are stored in the visitor's browser**. Locally, `node server.js` stores them in `data/db.json`.
 4. See `docs/SETUP.md` for the step-by-step Supabase setup and `docs/DEMO.md` for the presentation script.
 
