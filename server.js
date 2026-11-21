@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 require('./lib/env');
-const { db, save } = require('./lib/store');
+const store = require('./lib/store');
 const groq = require('./lib/groq');
 const { finderTurn, helpTurn } = require('./lib/ai');
 const { examplesFor } = require('./lib/examples');
@@ -44,10 +44,45 @@ function readBody(req) {
 const str = (v, max) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max);
 const SKILL_IDS = new Set(SKILLS.map(s => s.id));
 
-function publicRoom(room, withMessages) {
-  const { requestId, clientId, ...rest } = room;
-  if (!withMessages) { const last = room.messages[room.messages.length - 1]; delete rest.messages; return { ...rest, messageCount: room.messages.length, lastMessageAt: last ? last.ts : null }; }
-  return rest;
+// ---------- sessions ----------
+// An anonymous identity, kept in an HttpOnly cookie. The server stamps message authors and group
+// ownership from this session, so a browser cannot claim to be someone else. No email, no password.
+const SID_RE = /^[a-f0-9]{32}$/;
+function parseCookies(req) {
+  const out = {};
+  String(req.headers.cookie || '').split(';').forEach(part => {
+    const i = part.indexOf('=');
+    if (i < 0) return;
+    try { out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim()); } catch { /* skip bad cookie */ }
+  });
+  return out;
+}
+async function getSession(req, res) {
+  const c = parseCookies(req);
+  let sid = c.knot_sid && SID_RE.test(c.knot_sid) ? c.knot_sid : null;
+  let isNew = false;
+  if (!sid) { sid = crypto.randomBytes(16).toString('hex'); isNew = true; }
+  const user = await store.ensureUser(sid);
+  if (isNew) res.setHeader('Set-Cookie', `knot_sid=${sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000` + (process.env.VERCEL ? '; Secure' : ''));
+  return user;
+}
+
+function publicRoom(room, withMessages, meId) {
+  const realMembers = (room.memberUserIds || []).map(uid => ({
+    id: uid, name: (room.memberNames || {})[uid] || 'Member', demo: false, you: uid === meId,
+    city: '', modeText: 'Joined via invite', skillLabels: [], availabilityText: 'Just joined', availabilityDays: null
+  }));
+  const demoMembers = (room.demoMembers || []).map(m => ({ ...m, demo: true, you: false }));
+  const out = {
+    id: room.id, inviteCode: room.inviteCode, title: room.title, goal: room.goal,
+    createdAt: room.createdAt, members: [...realMembers, ...demoMembers],
+    messages: room.messages || []
+  };
+  if (!withMessages) {
+    const last = out.messages[out.messages.length - 1];
+    return { ...out, messageCount: out.messages.length, lastMessageAt: last ? last.ts : null, messages: undefined };
+  }
+  return out;
 }
 
 function memberSnapshot(p) {
@@ -60,7 +95,28 @@ async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // after "api"
   const m = req.method;
 
-  if (m === 'GET' && parts[0] === 'status') return send(res, 200, { matcher: 'local-rules', ai: groq.enabled(), aiModels: groq.enabled() ? groq.MODELS : null, storage: process.env.VERCEL ? 'browser' : 'data/db.json', persistent: !process.env.VERCEL, profiles: profiles.length });
+  if (m === 'GET' && parts[0] === 'status') return send(res, 200, {
+    matcher: 'local-rules', ai: groq.enabled(), aiModels: groq.enabled() ? groq.MODELS : null,
+    storage: store.kind === 'postgres' ? 'shared-postgres' : (process.env.VERCEL ? 'browser' : 'data/db.json'),
+    persistent: store.kind === 'postgres' || !process.env.VERCEL, profiles: profiles.length
+  });
+
+  if (parts[0] === 'session') {
+    const user = await getSession(req, res);
+    if (m === 'POST') {
+      const b = await readBody(req);
+      if (b.legacyClientId) await store.setLegacyClientId(user.id, str(b.legacyClientId, 80));
+    }
+    return send(res, 200, user);
+  }
+  if (m === 'POST' && parts[0] === 'profile') {
+    const user = await getSession(req, res);
+    const b = await readBody(req);
+    const name = str(b.name, 40);
+    if (!name) return send(res, 400, { error: 'Add a display name first.' });
+    const u = await store.updateUser(user.id, { name, isGuest: false });
+    return send(res, 200, u);
+  }
 
   if (m === 'POST' && parts[0] === 'skills' && parts[1] === 'map') {
     const b = await readBody(req); const text = str(b.text, 60);
@@ -114,40 +170,61 @@ async function api(req, res, url) {
   }
 
   if (parts[0] === 'rooms') {
+    const user = await getSession(req, res);
     if (m === 'GET' && parts.length === 1) {
-      const cid = str(url.searchParams.get('clientId'), 80);
-      const rooms = db.rooms.filter(r => r.clientId === cid).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(r => publicRoom(r, false));
+      const rooms = await store.listRoomsForUser(user);
       return send(res, 200, { rooms });
+    }
+    if (parts[1] === 'join' && m === 'POST') {
+      const b = await readBody(req);
+      const room = await store.findRoomByInvite(b.code);
+      if (!room) return send(res, 404, { error: 'That invite link is not valid. Ask the group creator to copy the invite link again from inside the room.' });
+      const allowed = await store.canAccessRoom(room, user);
+      if (!allowed) await store.addRoomMember(room, user);
+      return send(res, 200, { room: publicRoom(await store.getRoomRaw(room.id), true, user.id) });
     }
     if (m === 'POST' && parts.length === 1) {
       const b = await readBody(req);
-      const requestId = str(b.requestId, 80), clientId = str(b.clientId, 80);
-      if (!requestId || !clientId) return send(res, 400, { error: 'Missing request details. Please try again.' });
-      const dup = db.rooms.find(r => r.requestId === requestId);
-      if (dup) return send(res, 200, { room: publicRoom(dup, true), duplicate: true });
-      const goal = str(b.goal, 500), title = str(b.title, 80), ownerName = str(b.ownerName, 40);
-      if (!goal || !title || !ownerName) return send(res, 400, { error: 'A group needs a name and a goal.' });
+      const requestId = str(b.requestId, 80);
+      if (!requestId) return send(res, 400, { error: 'Missing request details. Please try again.' });
+      const goal = str(b.goal, 500), title = str(b.title, 80);
+      if (!goal || !title) return send(res, 400, { error: 'A group needs a name and a goal.' });
       const ids = [...new Set(Array.isArray(b.memberIds) ? b.memberIds : [])].slice(0, 5);
       const members = ids.map(id => profiles.find(p => p.id === id)).filter(Boolean).map(memberSnapshot);
       if (!members.length) return send(res, 400, { error: 'Select at least one person for the group.' });
       const ownerSkills = (Array.isArray(b.ownerSkills) ? b.ownerSkills : []).filter(id => SKILL_IDS.has(id));
-      const owner = { id: clientId, name: ownerName, you: true, skillLabels: ownerSkills.map(id => SKILL_BY_ID[id].label), availabilityDays: null, availabilityText: 'You' };
-      const room = { id: crypto.randomBytes(5).toString('hex'), requestId, clientId, title, goal, ownerName, createdAt: new Date().toISOString(), members: [owner, ...members], messages: [] };
-      db.rooms.push(room); save();
-      return send(res, 201, { room: publicRoom(room, true) });
+      const owner = { id: user.id, name: user.name, you: true, skillLabels: ownerSkills.map(id => SKILL_BY_ID[id].label), availabilityDays: null, availabilityText: 'You', demo: false };
+      const made = await store.createRoom({
+        id: crypto.randomBytes(5).toString('hex'), inviteCode: crypto.randomBytes(4).toString('hex'),
+        requestId, title, goal, ownerUserId: user.id, ownerName: user.name, legacyClientId: str(b.clientId, 80),
+        demoMembers: members
+      });
+      if (!made.room) return send(res, 500, { error: 'The group could not be saved. Please try again.' });
+      return send(res, made.duplicate ? 200 : 201, { room: publicRoom(made.room, true, user.id), duplicate: made.duplicate });
     }
-    const room = db.rooms.find(r => r.id === parts[1]);
-    if (!room) return send(res, 404, { error: 'This group could not be found. It may have been created in another browser or on another computer. Open My groups to see the groups saved in this browser.' });
-    if (m === 'GET' && parts.length === 2) return send(res, 200, { room: publicRoom(room, true), next: guide.fromRoom(room) });
+    if (parts.length < 2) return send(res, 404, { error: 'Not found' });
+    let room = await store.getRoomRaw(parts[1]);
+    if (!room) return send(res, 404, { error: 'This group could not be found. It may live on another computer or in another browser. Open My groups to see your groups, or ask the creator for an invite link.' });
+    const allowed = await store.canAccessRoom(room, user);
+    if (!allowed) return send(res, 403, { error: 'You are not in this group yet. Open the invite link the creator shared to join it.' });
+    if (m === 'GET' && parts.length === 2) return send(res, 200, { room: publicRoom(room, true, user.id), next: guide.fromRoom({ messages: room.messages || [] }) });
+    if (m === 'GET' && parts[2] === 'messages') {
+      const msgs = await store.listMessagesAfter(room, url.searchParams.get('after'));
+      return send(res, 200, { messages: msgs });
+    }
     if (m === 'POST' && parts[2] === 'messages') {
+      if (!limited(req)) return send(res, 429, { error: 'Slow down a little and try again in a minute.' });
       const b = await readBody(req);
       const text = String(b.text == null ? '' : b.text).trim().slice(0, 2000);
       if (!text) return send(res, 400, { error: 'Type a message first.' });
-      const msg = { id: crypto.randomUUID(), authorId: str(b.authorId, 80), authorName: str(b.authorName, 40) || 'Someone', text, kind: b.kind === 'assistant' ? 'assistant' : 'user', ts: new Date().toISOString() };
-      room.messages.push(msg); save();
+      // The author is always this session's user; anything the client claims about itself is ignored.
+      const msg = await store.addMessage(room, { userId: user.id, authorName: user.name, text, kind: b.kind });
       return send(res, 201, { message: msg });
     }
-    if (m === 'POST' && parts[2] === 'assist') return send(res, 200, buildAssist(room));
+    if (m === 'POST' && parts[2] === 'assist') {
+      const pub = publicRoom(room, false, user.id);
+      return send(res, 200, buildAssist({ goal: room.goal, members: pub.members }));
+    }
   }
   return send(res, 404, { error: 'Not found' });
 }
@@ -184,5 +261,5 @@ server.on('error', e => {
 });
 server.listen(PORT, () => {
   console.log(`KNOT is running at http://localhost:${PORT}`);
-  console.log(`Matching: local rules. AI chat + help: ${groq.enabled() ? 'on (Groq, key read from .env, server-side only)' : 'off (no GROQ_API_KEY; help bot uses basic local rules)'}. Storage: data/db.json`);
+  console.log(`Matching: local rules. AI chat + help: ${groq.enabled() ? 'on (Groq, key read from .env, server-side only)' : 'off (no GROQ_API_KEY; help bot uses basic local rules)'}. Storage: ${store.kind === 'postgres' ? 'shared Postgres (DATABASE_URL)' : 'data/db.json (this machine only; set DATABASE_URL to share across computers)'}`);
 });

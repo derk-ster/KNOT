@@ -4,9 +4,16 @@
   "description": "KNOT - find people to do something with. ITKAN AI Hackathon demo.",
   "private": true,
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node --test test/match.test.js test/api.test.js",
+    "lint": "node bin/lint.js",
+    "db:check": "node bin/db-check.js"
   },
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "postgres": "^3.4.5"
   }
 }

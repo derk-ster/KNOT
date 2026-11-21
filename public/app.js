@@ -42,6 +42,7 @@ const initials = n => n.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpper
 // ---------- state ----------
 const state = {
   clientId: store.get('knot.clientId', null) || uid(),
+  sessionId: null, sessionName: null,
   me: store.get('knot.me', null),
   goal: store.get('knot.goal', ''),
   relaxed: [],
@@ -73,8 +74,9 @@ async function localRoomApi(path, opts) {
     if (!b.title || !b.goal) throw new Error('A group needs a name and a goal.');
     const { members } = await apiRaw('/api/members', { method: 'POST', body: JSON.stringify({ ids: b.memberIds }) });
     if (!members.length) throw new Error('Select at least one person for the group.');
+    members.forEach(m => { m.demo = true; m.you = false; });
     const label = id => (state.skills.find(s => s.id === id) || { label: id }).label;
-    const owner = { id: b.clientId, name: b.ownerName, you: true, skillLabels: (b.ownerSkills || []).map(label), availabilityDays: null, availabilityText: 'You' };
+    const owner = { id: b.clientId, name: b.ownerName, you: true, demo: false, skillLabels: (b.ownerSkills || []).map(label), availabilityDays: null, availabilityText: 'You' };
     const room = { id: uid(), requestId: b.requestId, clientId: b.clientId, title: b.title, goal: b.goal, ownerName: b.ownerName, createdAt: new Date().toISOString(), members: [owner, ...members], messages: [] };
     rooms.push(room); save(); return { room };
   }
@@ -167,6 +169,7 @@ function route(initial) {
   paintHeader();
   $('#createDialog').open && $('#createDialog').close();
   if (h.startsWith('#/room/')) renderRoom(h.slice(7));
+  else if (h.startsWith('#/join/')) renderJoin(h.slice(7));
   else if (h === '#/groups') renderGroups();
   else if (h === '#/finder') renderFinder();
   else renderHome(initial);
@@ -481,6 +484,7 @@ function openProfile(opts = {}) {
     if (!skills.length) { serr.innerHTML = icon.alert + `<span>We couldn’t match “${esc(ctext)}” to anything yet. Try another word, or pick a skill above.</span>`; serr.hidden = false; $('#pCustom').focus(); return; }
     state.me = { name, skills, custom, interests: $('#pInterests').value.trim(), city: $('#pCity').value, availability: $$('#pDays input:checked').map(i => i.value), mode: ($('input[name=pMode]:checked') || { value: 'both' }).value };
     store.set('knot.me', state.me); state.respKey = null; if ($('#examples')) refreshExamples();
+    if (name !== state.sessionName) apiRaw('/api/profile', { method: 'POST', body: JSON.stringify({ name }) }).then(u => { state.sessionName = u.name; }).catch(() => {});
     d.close(); paintHeader();
     if (opts.thenSearch || (opts.rerun && state.goal.trim())) findPeople(true); else say('Profile saved.');
   });
@@ -652,6 +656,20 @@ async function renderGroups() {
 const timeFmt = ts => new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 function stopPoll() { clearInterval(state.pollTimer); state.pollTimer = null; }
 
+// Joining someone else's group through their invite link: #/join/<code>
+async function renderJoin(code) {
+  const main = $('#main');
+  main.innerHTML = '<section class="page"><p class="hint">Joining group…</p></section>';
+  try {
+    const { room } = await api('/api/rooms/join', { method: 'POST', body: JSON.stringify({ code }) });
+    say('Joined ' + room.title);
+    location.hash = '#/room/' + room.id;
+  } catch (e) {
+    main.innerHTML = `<section class="page"><div class="empty center"><img src="assets/art/puzzle_piece.png" width="150" height="152" alt="" class="empty-art"><div><h1 id="h1" tabindex="-1">That invite didn’t work</h1><p>${esc(e.message)}</p><a class="btn primary" href="#/">Go to KNOT</a></div></div></section>`;
+    $('#h1').focus();
+  }
+}
+
 async function renderRoom(id) {
   const main = $('#main');
   main.innerHTML = '<section class="page"><p class="hint">Opening group…</p></section>';
@@ -664,7 +682,10 @@ async function renderRoom(id) {
   main.innerHTML = `<section class="room">
     <a class="back" href="#/groups">← My groups</a>
     <header class="room-head">${markImg(64)}<div><h1 id="h1" tabindex="-1">${esc(room.title)}</h1>
-      <p class="room-goal"><span class="gq-label">Goal</span> “${esc(room.goal)}”</p></div></header>
+      <p class="room-goal"><span class="gq-label">Goal</span> “${esc(room.goal)}”</p>
+      <button type="button" class="btn quiet sm" id="inviteBtn">Copy invite link</button>
+      <span id="inviteCopied" class="hint" hidden>Invite link copied. Anyone who opens it can join this room.</span>
+    </div></header>
     <div class="room-grid">
       <div class="chat">
         <ol id="msgs" class="msgs" aria-label="Messages" aria-live="polite"></ol>
@@ -682,8 +703,14 @@ async function renderRoom(id) {
       </div>
       <aside class="members" aria-labelledby="memHead">
         <h2 id="memHead">Members</h2>
-        <ul>${room.members.map(m => `<li><span class="avatar sm" aria-hidden="true">${esc(initials(m.name))}</span><span><strong>${esc(m.name)}</strong>${m.you ? ' (you)' : ''}<span class="meta">${m.you ? 'Group creator' : esc(m.city) + ' · ' + esc(m.modeText)}</span>${!m.you ? `<span class="meta">${esc(m.skillLabels.join(', '))}</span>` : ''}${!m.you ? `<span class="meta ${m.availabilityDays ? '' : 'unk'}">${m.availabilityDays ? 'Free: ' : ''}${esc(m.availabilityText)}</span>` : ''}</span></li>`).join('')}</ul>
-        <p class="msg info small">Fictional demo profiles. They won’t reply. Messages are saved on this KNOT server, so they survive a refresh.</p>
+        <ul>${room.members.map(m => {
+          const isDemo = m.demo !== false;
+          const meta = m.you ? 'Group creator' : (!isDemo ? esc(m.modeText) : esc(m.city ? `${m.city} · ` : '') + esc(m.modeText));
+          const extra = !isDemo ? '' : `<span class="meta">${esc(m.skillLabels.join(', '))}</span><span class="meta ${m.availabilityDays ? '' : 'unk'}">${m.availabilityDays ? 'Free: ' : ''}${esc(m.availabilityText)}</span>`;
+          const badge = !isDemo ? (m.you ? '' : '<span class="badge neutral">Real member</span>') : '<span class="badge neutral">Demo profile</span>';
+          return `<li><span class="avatar sm" aria-hidden="true">${esc(initials(m.name))}</span><span><strong>${esc(m.name)}</strong>${m.you ? ' (you)' : ''} ${badge}<span class="meta">${meta}</span>${extra}</span></li>`;
+        }).join('')}</ul>
+        <p class="msg info small">Profiles tagged “Demo profile” are fictional examples from the KNOT community. They won’t reply. Everyone who opens the invite link joins for real and can chat here.</p>
       </aside>
     </div></section>`;
   $('#h1').focus({ preventScroll: true });
@@ -692,15 +719,26 @@ async function renderRoom(id) {
     if (!force && r.messages.length === lastCount) return;
     const box = $('#msgs'); const near = box.scrollHeight - box.scrollTop - box.clientHeight < 80 || lastCount < 0;
     lastCount = r.messages.length; if (lastCount) state.roomNext = null; queueNext();
-    box.innerHTML = r.messages.length ? r.messages.map(m => `<li class="msg-item ${m.authorId === state.clientId ? 'mine' : ''}"><div class="bubble"><div class="m-head"><strong>${esc(m.authorName)}</strong>${m.kind === 'assistant' ? '<span class="badge assistant">Assistant draft</span>' : ''}<time datetime="${esc(m.ts)}">${esc(timeFmt(m.ts))}</time></div><p>${esc(m.text)}</p></div></li>`).join('')
+    box.innerHTML = r.messages.length ? r.messages.map(m => `<li class="msg-item ${m.authorId === state.sessionId || m.authorId === state.clientId ? 'mine' : ''}"><div class="bubble"><div class="m-head"><strong>${esc(m.authorName)}</strong>${m.kind === 'assistant' ? '<span class="badge assistant">Assistant draft</span>' : ''}<time datetime="${esc(m.ts)}">${esc(timeFmt(m.ts))}</time></div><p>${esc(m.text)}</p></div></li>`).join('')
       : `<li class="msg-empty"><img src="assets/art/heart_chat.png" width="120" height="104" alt="" loading="lazy"><p><strong>Say hello.</strong> Start the conversation, or ask for a first step.</p></li>`;
     if (near) box.scrollTop = box.scrollHeight;
   };
   paint(room, true); queueNext();
-  state.pollTimer = setInterval(async () => { try { const r = (await api('/api/rooms/' + id)).room; paint(r); } catch { /* offline: keep showing */ } }, 4000);
+  state.pollTimer = setInterval(async () => { try { const r = (await api('/api/rooms/' + id)).room; room.messages = r.messages; room.members = r.members; paint(r); } catch { /* offline: keep showing */ } }, 2500);
+
+  if (localRooms) { const ib = $('#inviteBtn'); if (ib) ib.hidden = true; }
+  $('#inviteBtn').addEventListener('click', async () => {
+    const link = location.origin + location.pathname + '#/join/' + room.inviteCode;
+    try { await navigator.clipboard.writeText(link); }
+    catch { prompt('Copy this invite link and share it with your group:', link); }
+    const ok = $('#inviteCopied'); if (ok) { ok.hidden = false; setTimeout(() => { ok.hidden = true; }, 4000); }
+    say('Invite link copied');
+  });
 
   const post = async (text, kind) => {
-    const { message } = await api(`/api/rooms/${id}/messages`, { method: 'POST', body: JSON.stringify({ text, kind, authorId: state.clientId, authorName: state.me ? state.me.name : 'You' }) });
+    // In shared mode the server stamps the author from the session cookie; the browser never names itself.
+    const body = localRooms ? { text, kind, authorId: state.clientId, authorName: state.me ? state.me.name : 'You' } : { text, kind };
+    const { message } = await api(`/api/rooms/${id}/messages`, { method: 'POST', body: JSON.stringify(body) });
     room.messages.push(message); paint(room, true);
     const ok = $('#sentOk'); ok.hidden = false; say('Message sent'); clearTimeout(ok._t); ok._t = setTimeout(() => { ok.hidden = true; }, 3000);
   };
@@ -746,7 +784,20 @@ async function renderRoom(id) {
 async function boot() {
   $('#profileBtn').addEventListener('click', () => openProfile());
   ['profileDialog', 'createDialog'].forEach(id => { const d = $('#' + id); d.addEventListener('click', e => { if (e.target === d) d.close(); }); });
-  try { const s = await apiRaw('/api/status'); localRooms = s.persistent === false; } catch { /* older server */ }
+  try {
+    const s = await apiRaw('/api/status');
+    localRooms = s.persistent === false;
+  } catch { /* older server */ }
+  // Server-side anonymous session (HttpOnly cookie). The server stamps message authors and group
+  // ownership from it; the browser cannot claim an identity. legacyClientId keeps groups that were
+  // created before this upgrade visible in My groups.
+  try {
+    const s = await apiRaw('/api/session', { method: 'POST', body: JSON.stringify({ legacyClientId: state.clientId }) });
+    state.sessionId = s.id; state.sessionName = s.name;
+    if (state.me && state.me.name && state.me.name !== s.name) {
+      apiRaw('/api/profile', { method: 'POST', body: JSON.stringify({ name: state.me.name }) }).catch(() => {});
+    }
+  } catch { /* offline: local-only identity until reload */ }
   for (let i = 0; i < 3 && !state.skills.length; i++) { try { state.skills = (await apiRaw('/api/skills')).skills; } catch { await new Promise(r => setTimeout(r, 400)); } }
   route(true);
 }

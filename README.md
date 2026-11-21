@@ -19,7 +19,8 @@ Use `PORT=4000 node server.js` for another port. To reset the demo (delete all g
 The repo is Vercel-ready: `public/` is served as static files and `api/[...path].js` runs the same API as `server.js`.
 1. Import the GitHub repo in Vercel (no build command needed; `vercel.json` sets the output folder).
 2. Optional AI: add `GROQ_API_KEY` under Project Settings, Environment Variables (never in the repo), then redeploy.
-3. Vercel functions can't keep files, so on Vercel **groups and chat are stored in the visitor's browser** (the API tells the page to do this). Locally, `node server.js` still stores them in `data/db.json`.
+3. For shared data across computers, add `DATABASE_URL` (Supabase Postgres) under Project Settings → Environment Variables; the schema is created automatically. Without it, Vercel functions can't keep files and **groups and chat are stored in the visitor's browser**. Locally, `node server.js` still stores them in `data/db.json`.
+4. Optional AI: add `GROQ_API_KEY` the same way. See `docs/SETUP.md` for the step-by-step Supabase setup and `docs/DEMO.md` for the presentation script.
 
 ## What is real and what is simulated
 
@@ -28,7 +29,9 @@ The repo is Vercel-ready: `public/` is served as static files and `api/[...path]
 | **Matching** | **Local rules, no AI model at runtime.** A deterministic matcher in `lib/match.js` reads skills, a city, in-person vs. online and a day from the goal text with keyword rules, applies explicit requirements first, then ranks by skill and topic overlap. Every sentence shown comes from a stored profile field. The UI labels this "Local matcher". |
 | **AI Finder tab + Help bot** | Groq models (`openai/gpt-oss-120b` for the Finder, `openai/gpt-oss-20b` for the help bot), called server-side. The Finder only turns a short chat into a goal; **the people shown still come from the local matcher and profile data**. The help bot returns an allow-listed page to open; the "how to get there / get back" text is fixed, not model-written. If the AI call fails, the UI says so. |
 | **Assistant ("Help us get started")** | A **template**, not an AI. It fills in the goal, members' stated skills and shared free days. It is labeled as a draft, can be edited, posted or discarded. |
-| **Storage** | `data/db.json` on the machine running the server. Rooms and messages survive refresh and restart. Anyone opening the same server URL sees the same rooms. Your profile, goal and a client id live in the browser's `localStorage`. |
+| **Storage** | With `DATABASE_URL` set: shared Postgres (Supabase). Groups, memberships and messages live in shared tables, so every computer and the deployed site see the same data; the schema is created automatically. Without it: `data/db.json` on the machine running the server (or, on Vercel without a database, each visitor's browser). Your profile, goal and session live in a browser cookie plus `localStorage`. |
+| **Accounts** | None. No email, no sign-in. An anonymous session (HttpOnly cookie) is issued by the server; it stamps message authors and room ownership, so a browser cannot post as someone else. Different devices join the same room through an invite link, not by session sharing. |
+| **Access control** | Only the creator and invited members can read or post in a room (server-enforced; outsiders get 403). Duplicate group creation is deduped server-side by request id. |
 | **Members** | The 51 profiles in `data/profiles.json` are fictional (work, school and plain-fun skills; six are "open to anything" so every goal returns people, with an honest *Closest fit* note). Typed custom skills are mapped to the nearest known skill by the AI, or by local keyword rules if it is off. They never reply. Nothing pretends they are online. |
 | **Accounts** | None. No email, no sign-in. "My groups" is per browser (its client id). |
 | **How AI was used** | Claude Code (Claude Opus/Sonnet) helped write this code, and the art pack was supplied by the team. No model is called while the site runs. |
@@ -69,7 +72,7 @@ The repo is Vercel-ready: `public/` is served as static files and `api/[...path]
 ## Three likely judge questions
 
 1. **"Where is the AI?"** Honest answer: the running site uses a transparent local matcher and a template for the starter message, so every reason is traceable to profile data (that's what "Why this match?" shows). We used Claude Code to build it. The matcher's `parseGoal` and `buildAssist` are the two places a model would slot in.
-2. **"Are these real people? What about privacy?"** The 16 profiles are fictional. Real use would need accounts, consent and moderation; today there are no accounts, only city-level location and no email collected.
+2. **"Are these real people? What about privacy?"** The 51 community profiles are fictional and tagged as demo. Real use would need accounts, consent and moderation; today there are no accounts, only city-level location and no email collected.
 3. **"Can multiple people really chat?"** Yes, technically: rooms and messages live on the server, so a second browser opening the same room link sees the same messages (it refreshes every 4 seconds). The fictional members don't answer, and we say so in the UI.
 
 ## Known limits
