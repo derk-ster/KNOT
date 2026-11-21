@@ -9,7 +9,7 @@ const path = require('path');
 const crypto = require('crypto');
 require('./lib/env');
 const store = require('./lib/store');
-const { finderTurn, helpTurn, interpretGoal, roomAssistant } = require('./lib/ai');
+const { finderTurn, helpTurn, interpretGoal, roomAssistant, localRoomReply } = require('./lib/ai');
 const { demoReply, pickSpeaker } = require('./lib/demo');
 const llm = require('./lib/llm');
 const { examplesFor } = require('./lib/examples');
@@ -655,11 +655,14 @@ async function api(req, res, url) {
       // line is written, so the room shows the same dots a member gets.
       // A member who asked KNOT AI gets the helper's answer, not a demo profile's: the demo voices
       // stay quiet for that message so the two never answer over each other.
+      // The member who just spoke, from the room's own record of them. The bots are given this so
+      // they can answer by name and remember what this person said earlier in the room.
+      const meMember = room.members.find(x => x.pid === myPid) || null;
       if (!msg.duplicate && !askAi && (room.demoMembers || []).length) {
         const speaker = pickSpeaker(room);
         if (speaker) setTyping(room.id, 'demo:' + speaker.name, speaker.name, { demo: true });
         try {
-          const out = await demoReply({ room: { ...room, messages: [...(room.messages || []), msg] }, lastText: text });
+          const out = await demoReply({ room: { ...room, messages: [...(room.messages || []), msg] }, lastText: text, me: meMember, mePid: myPid });
           if (out && out.text) replies.push(await store.addMessage(room, { authorName: out.name, text: out.text, kind: 'demo' }));
         } catch { /* the demo is optional; the member message already posted */ } finally { if (speaker) clearTyping(room.id, 'demo:' + speaker.name); }
       }
@@ -672,16 +675,23 @@ async function api(req, res, url) {
         const aiQuestion = (str(b.aiQuestion, 500) || text.replace(/^\/[a-z]+\s*/i, '')).trim() || text;
         setTyping(room.id, 'knot-ai', 'KNOT AI', { ai: true });
         try {
-          const out = await roomAssistant({ room, meProfile: null, question: aiQuestion, history });
+          // The helper is given the asking member's stored profile and their earlier messages in
+          // this room, so it can answer them by name and remember what they already told the group.
+          const out = await roomAssistant({ room, me: meMember, mePid: myPid, question: aiQuestion, history });
           replies.push(await store.addMessage(room, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' }));
-        } catch { /* AI is optional; the member message already posted */ } finally { clearTyping(room.id, 'knot-ai'); }
+        } catch {
+          // A question to KNOT AI always gets an answer. If even the plain answer fails, the member
+          // still sees something under their question rather than nothing at all.
+          const line = await store.addMessage(room, { authorName: 'KNOT AI', text: localRoomReply({ room, me: meMember, pid: myPid, question: aiQuestion }), kind: 'assistant' }).catch(() => null);
+          if (line) replies.push(line);
+        } finally { clearTyping(room.id, 'knot-ai'); }
       }
       // ai_mode 'on': after each member message, KNOT AI posts one short reply (never as a human).
       // Skipped when the member already asked it something, so it never answers twice.
       if (room.aiMode === 'on' && !askAi && !msg.duplicate) {
         setTyping(room.id, 'knot-ai', 'KNOT AI', { ai: true });
         try {
-          const out = await roomAssistant({ room, meProfile: null, question: 'Respond briefly to the latest message and move the group forward.', history });
+          const out = await roomAssistant({ room, me: meMember, mePid: myPid, question: 'Respond to the latest message and move the group forward.', history });
           replies.push(await store.addMessage(room, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' }));
         } catch { /* AI is optional; the member message already posted */ } finally { clearTyping(room.id, 'knot-ai'); }
       }

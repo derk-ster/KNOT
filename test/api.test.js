@@ -452,15 +452,24 @@ test('room settings: AI stays off by default and can switch to on-demand, never 
   assert.equal(set.status, 200);
   assert.equal((await set.json()).room.aiMode, 'on-demand');
   // Asking once the room allows it posts the member's own words, with no slash and no "assistant" kind
-  // from the client. Without a model configured there is no reply, and that must not break the send.
+  // from the client. With no model configured the helper still answers from the room's own stored
+  // profiles, because a question that gets typing dots and then silence is the bug people notice.
   const askOn = await post(`/api/rooms/${room.id}/messages`, { text: 'who can edit?', askAi: true }, j);
   assert.equal(askOn.status, 201);
   const asked = await askOn.json();
   assert.equal(asked.message.text, 'who can edit?', 'the question posts as a plain member message');
   assert.equal(asked.message.kind, 'user', 'the client cannot make its own message an assistant line');
+  const answer = (asked.replies || []).find(m => m.kind === 'assistant');
+  assert.ok(answer, 'asking KNOT AI always gets an answer back in the same response');
+  assert.equal(answer.authorName, 'KNOT AI');
+  assert.ok(answer.text && answer.text.length > 20, 'the answer is a real sentence, not a placeholder');
   const after = (await (await get(`/api/rooms/${room.id}/messages`, j)).json()).messages;
   assert.ok(after.every(m => m.kind !== 'assistant' || m.authorName === 'KNOT AI'), 'only KNOT AI can post assistant lines');
-  assert.ok(after.filter(m => m.kind === 'assistant').length <= 1, 'one question gets at most one answer');
+  assert.equal(after.filter(m => m.kind === 'assistant').length, 1, 'one question gets exactly one answer');
+  // A second question is answered differently: the helper does not hand back the line it just used.
+  const again = await (await post(`/api/rooms/${room.id}/messages`, { text: 'when can we meet?', askAi: true }, j)).json();
+  const second = (again.replies || []).find(m => m.kind === 'assistant');
+  assert.ok(second && second.text !== answer.text, 'the second answer is not the first one again');
   // a member (not a moderator) cannot change settings
   const member = jar();
   await signup(member, { name: 'Mia Member' });

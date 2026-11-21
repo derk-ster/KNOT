@@ -10,6 +10,11 @@ Project: KNOT, an ITKAN hackathon app. Vanilla Node server (zero framework) + va
 - `lib/demo.js` : the fictional demo profiles talking in a sandbox group. The server picks the speaker and
   writes the line (AI when configured, otherwise a local line built only from the stored demo profile);
   these messages are stored with `kind: 'demo'` and always shown with a Demo tag.
+- `lib/memory.js` : what a bot may remember about a person, built fresh per reply from that person's stored
+  profile and their own earlier messages in the room. Nothing is guessed, stored or carried between rooms.
+- `lib/ai.js` : the Finder, the help bot and the in-room KNOT AI. Every one of them calls the provider through
+  `lib/llm.js` (OpenAI, then Groq) and every one of them has a local answer built from stored data, so a
+  missing key or a failed call never leaves a question unanswered or a bot repeating itself.
 - `lib/session.js` logic lives in `server.js`: anonymous HttpOnly cookie (`knot_sid`). The server stamps message authors and room ownership; clients cannot claim identities.
 - `public/app.js` : the whole SPA (hash routing: `#/`, `#/finder`, `#/groups`, `#/room/:id`, `#/join/:code`). If `GET /api/status` says `persistent: false`, it keeps groups in localStorage instead (Vercel without a database).
 
@@ -25,6 +30,8 @@ Project: KNOT, an ITKAN hackathon app. Vanilla Node server (zero framework) + va
 ## Tests
 
 - `test/match.test.js` : matcher rules incl. the judge demo goals.
+- `test/demo.test.js` : the demo profiles hold a conversation (greet once, answer the thread, suggest next).
+- `test/ai.test.js` : the bots use the configured model, and still answer when it is missing or fails.
 - `test/api.test.js` : spins a real server on a temp DB (env `KNOT_DB_PATH`) and exercises sessions, dedupe, invite joining, permissions, restart persistence.
 
 ## Deploy
