@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node --test test/match.test.js test/api.test.js",
+    "test": "node --test test/match.test.js test/demo.test.js test/api.test.js",
     "lint": "node bin/lint.js",
     "db:check": "node bin/db-check.js"
   },

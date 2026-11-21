@@ -1590,7 +1590,12 @@ function paintRoom(room, isPoll) {
     if (image) clearImage();
     // optimistic append, replaced on next poll
     const log2 = $('#msgLog');
-    if (log2) { log2.insertAdjacentHTML('beforeend', msgBubble({ id: 'tmp', authorId: myPid(), authorName: myProfile().name, text, image, kind: 'user', ts: new Date().toISOString() })); log2.scrollTop = log2.scrollHeight; }
+    let optimistic = null;
+    if (log2) {
+      log2.insertAdjacentHTML('beforeend', msgBubble({ id: 'tmp', authorId: myPid(), authorName: myProfile().name, text, image, kind: 'user', ts: new Date().toISOString() }));
+      optimistic = log2.lastElementChild;
+      log2.scrollTop = log2.scrollHeight;
+    }
     const body = { text, clientMsgId: uid(), authorId: myPid(), authorName: myProfile().name };
     if (image) body.image = image;
     // Asking KNOT AI is a plain message plus this flag. The message keeps its "/ai" so the room can
@@ -1605,6 +1610,12 @@ function paintRoom(room, isPoll) {
         log2.scrollTop = log2.scrollHeight;
       }
     } catch (ex) {
+      // Nothing was posted, so nothing is lost: the line the member was writing comes back, the
+      // picture goes back into the preview, and the bubble that never happened is taken away.
+      if (optimistic && optimistic.isConnected) optimistic.remove();
+      const box = $('#msgInput');
+      if (text && box && !box.value) box.value = text;
+      if (image && !pendingImage) setImage(image);
       if (errBox) { errBox.innerHTML = icon.alert + `<span>${esc(ex.message)}</span>`; errBox.hidden = false; }
     }
   };
