@@ -77,6 +77,7 @@ main#main { min-height: 60vh; }
 .msg.err { background: var(--blush); color: var(--brick); }
 .msg.warn { background: var(--cream); color: var(--ochre); }
 .msg.info { background: rgba(33, 30, 40, .05); color: var(--muted); }
+.msg.ok { background: var(--mint); color: var(--teal); }
 .msg.small { font-size: .88rem; }
 .msg .btn { margin-top: 8px; }
 .hint { color: var(--muted); font-size: .92rem; }
@@ -203,6 +204,53 @@ main#main { min-height: 60vh; }
 }
 .hero-actions .btn.ghost { border-color: rgba(33, 30, 40, .1); }
 .section { max-width: 1080px; margin-inline: auto; padding: clamp(32px, 6vw, 64px) var(--gutter) 0; }
+
+/* ---------- signed-in home ---------- */
+/* The working home. The colour is a wash behind the headline and a handful of small metallic
+   objects drifting at the edges; the goal box stays the plainest thing on the page. */
+.mhero { position: relative; overflow: clip; padding: clamp(32px, 6vw, 72px) 0 clamp(20px, 4vw, 40px); text-align: center; }
+.mhero::before {
+  content: ''; position: absolute; inset: -30% -10% auto; height: 120%; pointer-events: none;
+  background:
+    radial-gradient(ellipse 42% 46% at 22% 34%, rgba(238, 233, 250, .95), transparent 70%),
+    radial-gradient(ellipse 40% 44% at 78% 26%, rgba(229, 243, 238, .9), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 50% 8%, rgba(255, 241, 204, .5), transparent 72%);
+}
+.mhero-copy { position: relative; z-index: 2; max-width: 820px; margin: 0 auto; padding-inline: var(--gutter); }
+.mhero h1 { font-size: clamp(2.3rem, 7vw, 4.4rem); font-weight: 800; letter-spacing: -.04em; line-height: .99; }
+.mhero-hl {
+  display: inline-block; color: var(--violet);
+  background-image: linear-gradient(transparent 58%, rgba(23, 100, 87, .18) 58%, rgba(23, 100, 87, .18) 92%, transparent 92%);
+}
+.mhero-sub { color: var(--muted); font-size: clamp(1rem, 2.2vw, 1.18rem); max-width: 46ch; margin: 14px auto 0; line-height: 1.5; }
+.mhero .goal-wrap { margin-top: clamp(20px, 3.5vw, 32px); text-align: left; }
+.mhero-floats { position: absolute; inset: 0; pointer-events: none; }
+.fl {
+  position: absolute; width: clamp(44px, 6vw, 74px); height: auto; opacity: .55;
+  filter: drop-shadow(0 8px 16px rgba(33, 30, 40, .14));
+  animation: drift 11s var(--ease) infinite;
+}
+.fl-1 { left: 4%; top: 14%; animation-delay: -1s; }
+.fl-2 { left: 7%; top: 52%; width: clamp(38px, 5vw, 60px); animation-delay: -4s; }
+.fl-3 { left: 2%; top: 74%; width: clamp(34px, 4.4vw, 52px); animation-delay: -7s; }
+.fl-4 { right: 4%; top: 16%; animation-delay: -2.5s; }
+.fl-5 { right: 7%; top: 50%; width: clamp(40px, 5.4vw, 64px); animation-delay: -6s; }
+.fl-6 { right: 3%; top: 72%; width: clamp(32px, 4.2vw, 50px); animation-delay: -9s; }
+@keyframes drift { 50% { transform: translateY(-14px) rotate(4deg); } }
+@media (prefers-reduced-motion: reduce) { .fl { animation: none; } }
+/* The floats live in the side bands beside the copy. Below ~1180px there is no band left,
+   so drop them rather than let them sit under the headline. */
+@media (max-width: 1179px) { .mhero-floats { display: none; } }
+.mhero #matchResults:not(:empty), .mhero #homeResults:not(:empty) { text-align: left; margin-top: 24px; }
+
+/* what you bring / what you need */
+.offer-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.offer-card { display: grid; gap: 10px; align-content: start; background: var(--white); border: 1.5px solid var(--line); border-radius: var(--r-md); padding: 20px; box-shadow: var(--shadow-1); }
+.offer-card h3 { font-size: 1.15rem; font-weight: 700; }
+.offer-card .chips { min-height: 38px; align-items: center; }
+.offer-card .interest-row input { min-height: 44px; background: var(--white); }
+.offer-actions { display: flex; align-items: center; justify-content: flex-end; gap: 14px; flex-wrap: wrap; margin-top: 16px; }
+.offer-actions .msg { margin: 0; }
 .sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
 .sec-head h2 { font-size: clamp(1.5rem, 3.4vw, 2.1rem); font-weight: 700; }
 .see-all { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; text-decoration: none; color: var(--violet); min-height: 44px; }

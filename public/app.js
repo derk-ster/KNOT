@@ -154,7 +154,10 @@ function closeMenu() {
 
 // ---------- HOME ----------
 function renderHome() {
-  const p = myProfile();
+  // Signed-in members come here to work, not to read about KNOT: a goal box, the groups open to
+  // them, and the two profile lists matching runs on. Visitors who are not signed in still get the
+  // marketing page that explains what KNOT is and offers an account.
+  if (state.acct) return renderMemberHome();
   $('#main').innerHTML = `
   <div id="home" class="home">
     <section class="hero" aria-labelledby="h1">
@@ -210,11 +213,163 @@ function renderHome() {
     </footer>
   </div>`;
   const cta = $('#ctaJoin'); if (cta) cta.addEventListener('click', () => openAuth('up'));
-  paintHomeGroups();
+  paintHomeGroups(3);
   if (!reduceMotion()) requestAnimationFrame(() => document.body.classList.add('booted'));
 }
 
-async function paintHomeGroups() {
+// The signed-in home. Same goal box as the AI Finder, so a member lands on something to use
+// instead of something to read. The metallic objects are decoration only: small, slow and off for
+// anyone who asked their system for less motion.
+function renderMemberHome() {
+  const floats = ['laptop', 'heart', 'basketball', 'paper_plane', 'puzzle_piece', 'sparkle'];
+  $('#main').innerHTML = `
+  <div id="home" class="home member-home">
+    <section class="mhero" aria-labelledby="h1">
+      <div class="mhero-floats" aria-hidden="true">
+        ${floats.map((n, i) => `<img class="fl fl-${i + 1}" src="assets/art/float/${n}.png" alt="" loading="lazy" decoding="async">`).join('')}
+      </div>
+      <div class="mhero-copy">
+        <h1 id="h1" tabindex="-1">What do you <span class="mhero-hl">want</span><br>to do?</h1>
+        <p class="mhero-sub">Say it in your own words. KNOT finds the people who fit and tells you why.</p>
+        <div class="goal-wrap">
+          <form id="goalForm" class="goal-form" novalidate>
+            <label class="sr" for="goal">Describe your goal</label>
+            <textarea id="goal" rows="2" maxlength="500" autocomplete="off" spellcheck="true" placeholder="I want to start a band and need a drummer."></textarea>
+            <div class="goal-row">
+              <p class="hint">Say what, where and when.</p>
+              <button class="btn primary" id="findBtn" type="submit"><span class="btn-label">Find my people</span></button>
+            </div>
+          </form>
+          <p class="msg err" id="finderErr" role="alert" hidden></p>
+        </div>
+        <div id="homeResults"></div>
+      </div>
+      <div id="createBar" class="create-bar" hidden>
+        ${markImg(34)}
+        <p id="createText"></p>
+        <button class="btn primary" id="createBtn" type="button">Create group</button>
+      </div>
+    </section>
+
+    <section class="section reveal" aria-labelledby="hgh">
+      <div class="sec-head">
+        <h2 id="hgh">Groups you could join</h2>
+        <a class="see-all" href="#/discover">See all ${icon.arrow}</a>
+      </div>
+      <div id="homeGroupsList" class="grid3" aria-live="polite"><p class="hint">Loading…</p></div>
+    </section>
+
+    <section class="section reveal" aria-labelledby="hbring">
+      <div class="sec-head">
+        <h2 id="hbring">What you bring, what you need</h2>
+        <span class="hint">Saved to your profile. Matching reads these, so keep them current.</span>
+      </div>
+      <div class="offer-grid">
+        <div class="offer-card">
+          <h3>What you offer</h3>
+          <p class="hint">Skills and hobbies other people can count on.</p>
+          <div class="chips" id="offerChips"></div>
+          <div class="interest-row" id="offerRow">
+            <input id="offerInput" type="text" maxlength="40" autocomplete="off" placeholder="e.g. video editing">
+            <button type="button" class="btn ghost sm" id="offerAdd">Add</button>
+          </div>
+          <p class="msg err small" id="offerErr" role="alert" hidden></p>
+        </div>
+        <div class="offer-card">
+          <h3>What you are looking for</h3>
+          <p class="hint">Up to three. KNOT suggests people around these.</p>
+          <div class="chips" id="lookChips"></div>
+          <div class="interest-row" id="lookRow">
+            <input id="lookInput" type="text" maxlength="40" autocomplete="off" placeholder="e.g. a drummer">
+            <button type="button" class="btn ghost sm" id="lookAdd">Add</button>
+          </div>
+        </div>
+      </div>
+      <div class="offer-actions">
+        <p class="msg ok small" id="offerMsg" role="status" hidden></p>
+        <button type="button" class="btn primary" id="offerSave">Save changes</button>
+      </div>
+    </section>
+  </div>`;
+  $('#h1').focus({ preventScroll: true });
+
+  const goal = $('#goal');
+  goal.value = state.goal;
+  goal.addEventListener('input', () => { state.goal = goal.value; store.set('knot.goal', state.goal); hideErr('#finderErr'); });
+  goal.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); findPeople(false, '#homeResults'); } });
+  $('#goalForm').addEventListener('submit', e => { e.preventDefault(); findPeople(false, '#homeResults'); });
+  $('#createBtn').addEventListener('click', openCreate);
+  if (state.resp && state.resultsTarget === '#homeResults') renderResultsInto('#homeResults', state.resp);
+
+  paintHomeGroups(6);
+  paintOfferEditor();
+  if (!reduceMotion()) requestAnimationFrame(() => document.body.classList.add('booted'));
+}
+
+// "What you offer" is skills, "what you are looking for" is interests: the two lists the matcher
+// actually reads. Editing here saves the same fields the profile dialog does.
+function paintOfferEditor() {
+  const p = myProfile();
+  const skills = [...(p.skills || [])];
+  const looks = [...(p.interests || [])];
+  const chips = (box, items, remove) => {
+    const el = $(box); if (!el) return;
+    el.innerHTML = items.length
+      ? items.map((x, i) => `<span class="tag strong">${esc(x)}<button type="button" class="tag-x" data-rm="${i}" aria-label="Remove ${esc(x)}">${icon.x}</button></span>`).join('')
+      : '<span class="hint">Nothing here yet.</span>';
+    $$('[data-rm]', el).forEach(b => b.addEventListener('click', () => { remove(Number(b.dataset.rm)); paint(); }));
+  };
+  const paint = () => {
+    chips('#offerChips', skills.map(skillLabel), i => skills.splice(i, 1));
+    chips('#lookChips', looks, i => looks.splice(i, 1));
+    $('#offerRow').hidden = skills.length >= 12;
+    $('#lookRow').hidden = looks.length >= 3;
+    const msg = $('#offerMsg'); if (msg) msg.hidden = true;
+  };
+  const addSkill = async () => {
+    const inp = $('#offerInput'); const typed = inp.value.trim();
+    if (!typed) return;
+    const known = state.skills.find(s => s.label.toLowerCase() === typed.toLowerCase())
+      || state.skills.find(s => s.label.toLowerCase().includes(typed.toLowerCase()));
+    let ids = known ? [known.id] : [];
+    if (!ids.length) {
+      // A word KNOT does not know: the skill mapper reads it and returns the closest real skills.
+      try { ids = (await api('/api/skills/map', { method: 'POST', body: JSON.stringify({ text: typed }) })).ids || []; } catch { ids = []; }
+    }
+    const fresh = ids.filter(id => !skills.includes(id));
+    if (!fresh.length) {
+      const e = $('#offerErr');
+      e.innerHTML = icon.alert + `<span>KNOT could not match "${esc(typed)}" to a skill. Try another word.</span>`;
+      e.hidden = false; return;
+    }
+    fresh.forEach(id => { if (skills.length < 12) skills.push(id); });
+    inp.value = ''; paint(); inp.focus();
+  };
+  const addLook = () => {
+    const inp = $('#lookInput'); const v = inp.value.trim();
+    if (v && !looks.includes(v) && looks.length < 3) looks.push(v);
+    inp.value = ''; paint();
+    if (looks.length < 3) inp.focus();
+  };
+  $('#offerAdd').addEventListener('click', addSkill);
+  $('#offerInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addSkill(); } });
+  $('#lookAdd').addEventListener('click', addLook);
+  $('#lookInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addLook(); } });
+  $('#offerSave').addEventListener('click', async () => {
+    const btn = $('#offerSave'); btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const me = await apiRaw('/api/auth/me', { method: 'PATCH', body: JSON.stringify({ skills, interests: looks }) });
+      state.acct = me;
+      paintHeader();
+      const msg = $('#offerMsg'); msg.className = 'msg ok small'; msg.textContent = 'Saved. Matching will use this straight away.'; msg.hidden = false;
+    } catch (ex) {
+      const msg = $('#offerMsg'); msg.className = 'msg err small'; msg.textContent = ex.message; msg.hidden = false;
+    } finally { btn.disabled = false; btn.textContent = 'Save changes'; }
+  });
+  paint();
+}
+
+async function paintHomeGroups(limit = 3) {
   const box = $('#homeGroupsList'); if (!box) return;
   if (!state.acct) {
     box.innerHTML = `<div class="empty small-pad"><div><p class="hint">Public groups are visible to members.</p>
@@ -225,7 +380,7 @@ async function paintHomeGroups() {
   try {
     const { groups } = await apiRaw('/api/groups');
     if (!groups.length) { box.innerHTML = `<p class="hint">No public groups yet. Create one and it shows up here.</p>`; return; }
-    box.innerHTML = groups.slice(0, 3).map(g => `
+    box.innerHTML = groups.slice(0, limit).map(g => `
       <a class="group-card" href="#/room/${esc(g.id)}">
         <span class="gc-top"><strong>${esc(g.title)}</strong><span class="meta">${g.memberCount}/${g.capacity} members · ${g.onlineOnly ? 'online' : (g.city ? esc(g.city) : 'in person')}</span></span>
         <span class="gc-goal">${esc(g.description || g.goal)}</span>
@@ -307,11 +462,14 @@ async function findPeople(force, containerSel) {
   if (!goal) { if (err) { err.innerHTML = icon.alert + '<span>Type a goal first, or tap one of the ideas.</span>'; err.hidden = false; } return; }
   if (!myProfile().name) { openProfile({ thenSearch: true }); return; }
   hideErr('#finderErr');
+  // Remember where results belong, so a relaxed re-run lands in the same box it came from.
+  const target = containerSel || state.resultsTarget || '#matchResults';
+  state.resultsTarget = target;
   const btn = $('#findBtn'); if (btn) { btn.disabled = true; btn.setAttribute('aria-busy', 'true'); }
   try {
     const resp = await api('/api/match', { method: 'POST', body: JSON.stringify({ goal, me: meForApi(), relaxed: state.relaxed }) });
     state.resp = resp;
-    renderResultsInto(containerSel || '#matchResults', resp);
+    renderResultsInto(target, resp);
     updateCreateBar();
     say(resp.results.length ? `${resp.results.length} ${resp.results.length === 1 ? 'person fits' : 'people fit'} your goal.` : 'No exact fit yet. See the suggestions.');
   } catch (e) {
@@ -321,6 +479,7 @@ async function findPeople(force, containerSel) {
 
 async function renderFinder() {
   const aiOn = await apiRaw('/api/status').then(s => s.ai).catch(() => false);
+  state.resultsTarget = '#matchResults';
   $('#main').innerHTML = `<section class="page finder" aria-labelledby="fh">
     <h1 id="fh" tabindex="-1" class="page-title">AI Finder</h1>
     <p class="lead">Describe what you want to do. KNOT finds people who fit, and explains why.</p>
