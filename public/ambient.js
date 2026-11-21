@@ -1,7 +1,7 @@
 'use strict';
 // KNOT ambient layer: a new random look on every page load.
 // Randomized per visit: colour theme, glow blobs, which floating art appears and where,
-// the drifting point network, the goal box's shape, pulse speed and the hero tilt.
+// the drifting point network, pulse and spin speeds, and the hero tilt.
 (function () {
   const reduce = matchMedia('(prefers-reduced-motion: reduce)');
   const seed = crypto.getRandomValues(new Uint32Array(1))[0];
@@ -26,10 +26,7 @@
   root.style.setProperty('--spin', between(7, 13).toFixed(1) + 's');
   root.style.setProperty('--tilt', between(-15, -4).toFixed(1) + 'deg');
   root.dataset.theme = theme.name;
-  // Random organic shape for the goal box (outer radii; inner = outer minus the 3px ring).
-  const h = [0, 0, 0, 0].map(() => Math.round(between(16, 44))), v = [0, 0, 0, 0].map(() => Math.round(between(16, 44)));
-  root.style.setProperty('--shape', `${h.join('px ')}px / ${v.join('px ')}px`);
-  root.style.setProperty('--shape-in', `${h.map(n => n - 4).join('px ')}px / ${v.map(n => n - 4).join('px ')}px`);
+  root.style.setProperty('--gd', theme.c[0]);
 
   const layer = document.createElement('div');
   layer.className = 'ambient'; layer.setAttribute('aria-hidden', 'true');
@@ -55,7 +52,7 @@
     const im = new Image(); im.src = `assets/art/float/${name}.png`; im.alt = ''; im.width = 180; im.height = 180; im.decoding = 'async';
     w.appendChild(im);
     const size = Math.round(between(54, 118));
-    w.style.cssText = `width:${size}px;height:${size}px;--r:${between(-24, 24).toFixed(0)}deg;--dx:${between(-26, 26).toFixed(0)}px;--dy:${between(-34, 34).toFixed(0)}px;--rr:${between(-14, 14).toFixed(0)}deg;--d:${between(7, 15).toFixed(1)}s;--delay:${(-rnd() * 10).toFixed(1)}s`;
+    w.style.cssText = `width:${size}px;height:${size}px;--r:${between(-20, 20).toFixed(0)}deg;--dx:${between(-26, 26).toFixed(0)}px;--dy:${between(-34, 34).toFixed(0)}px;--rr:${between(-14, 14).toFixed(0)}deg;--d:${between(7, 15).toFixed(1)}s;--delay:${(-rnd() * 10).toFixed(1)}s`;
     w._size = size; floaters.appendChild(w); return w;
   });
 
@@ -63,7 +60,7 @@
     const home = document.querySelector('.hero-copy');
     const r = (home || document.getElementById('main')).getBoundingClientRect();
     const hdr = document.querySelector('.site-header').getBoundingClientRect();
-    const art = document.querySelector('.hero-art'), ar = art && art.getBoundingClientRect(), list = ar && innerWidth >= 960 ? [{ l: ar.left + ar.width * .12, t: ar.top + ar.height * .12, r: ar.right - ar.width * .08, b: ar.bottom - ar.height * .08 }] : [];
+    const art = document.querySelector('.hero-art'), ar = art && art.getBoundingClientRect(), list = ar ? [{ l: ar.left, t: ar.top, r: ar.right, b: ar.bottom }] : [];
     return list.concat([{ l: r.left - 28, t: r.top - 28, r: r.right + 28, b: r.bottom + 28 }, { l: hdr.left, t: -999, r: hdr.right, b: hdr.bottom }]);
   }
   function place() {
@@ -112,4 +109,12 @@
   document.addEventListener('visibilitychange', start);
   reduce.addEventListener && reduce.addEventListener('change', () => { start(); if (reduce.matches) draw(0); });
   sizeCanvas(); start();
+  // Nav: header gets a shadow once scrolled; Home / brand scroll to the top when already on the home page.
+  const hdr = document.querySelector('.site-header');
+  const onScroll = () => hdr.classList.toggle('scrolled', scrollY > 8);
+  addEventListener('scroll', onScroll, { passive: true }); onScroll();
+  document.addEventListener('click', e => {
+    const a = e.target.closest('.brand, #navHome'); if (!a) return;
+    if (location.hash === '' || location.hash === '#/') { e.preventDefault(); scrollTo({ top: 0, behavior: reduce.matches ? 'auto' : 'smooth' }); }
+  });
 })();

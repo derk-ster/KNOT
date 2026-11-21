@@ -27,6 +27,7 @@ const icon = {
   arrow: '<svg class="ic" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h12M11 5l5 5-5 5"/></svg>'
 };
 const markImg = (w = 42) => `<img src="assets/art/knot-mark.svg" width="${w}" height="${Math.round(w * 0.75)}" alt="" class="mark">`;
+const hueOf = n => [...n].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
 const initials = n => n.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
 // ---------- state ----------
@@ -57,6 +58,7 @@ function paintHeader() {
   $('#profileAvatar').textContent = state.me ? initials(state.me.name) : '?';
   $('#profileLabel').textContent = state.me ? state.me.name.split(' ')[0] : 'Profile';
   const h = location.hash || '#/';
+  $('#navHome').setAttribute('aria-current', h === '#/' || h === '' ? 'page' : 'false');
   $('#navGroups').setAttribute('aria-current', h.startsWith('#/groups') || h.startsWith('#/room') ? 'page' : 'false');
 }
 async function refreshGroupCount() {
@@ -88,7 +90,7 @@ function renderHome(initial) {
     <svg id="strands" class="strands" aria-hidden="true" focusable="false"></svg>
     <section class="hero" aria-labelledby="h1">
       <div class="hero-copy">
-        <h1 id="h1">What do you want to do?</h1>
+        <h1 id="h1" class="mega"><span class="w w1">What do</span> <span class="you">you</span> <span class="w w3">want to do?</span></h1>
         <div class="goal-wrap"><i class="ring" aria-hidden="true"></i><i class="ring r2" aria-hidden="true"></i><i class="ring r3" aria-hidden="true"></i>
         <form id="goalForm" class="goal-form" novalidate>
           <textarea id="goal" rows="2" maxlength="500" autocomplete="off" spellcheck="true" aria-labelledby="h1" aria-describedby="goalHelp goalErr" placeholder="${esc(PLACEHOLDER)}"></textarea>
@@ -104,7 +106,6 @@ function renderHome(initial) {
       </div>
       <div class="hero-art" aria-hidden="true">
         <img class="hero-knot" src="assets/art/hero-knot.png" width="1200" height="311" alt="">
-        <img class="float f1" src="assets/art/sparkle.png" width="291" height="297" alt="">
       </div>
     </section>
 
@@ -227,10 +228,10 @@ function cardInner(r, open) {
   const sel = state.selected.has(r.id);
   return `<div class="card-grid">
     <label class="pick"><input type="checkbox" ${sel ? 'checked' : ''} aria-label="Add ${esc(r.name)} to a group"><span class="box">${icon.check}</span></label>
-    <div class="avatar" aria-hidden="true">${esc(initials(r.name))}</div>
+    <div class="avatar" style="--hue:${hueOf(r.name)}" aria-hidden="true">${esc(initials(r.name))}</div>
     <div class="card-body">
       <div class="card-top"><h3>${esc(r.name)}</h3><span class="meta">${esc(r.city)} · ${esc(r.modeText)}</span></div>
-      <p class="bring"><strong>Brings:</strong> ${esc(r.bring.join(', '))}</p>
+      <p class="bring"><span class="bring-label">Brings</span>${r.bring.map(b => `<span class="skill-chip">${esc(b)}</span>`).join('')}</p>
       <p class="reason">${esc(r.reason)}</p>
       <ul class="pairs">${r.pairs.map(p => `<li><span class="need">${esc(p.need)}</span><span class="pair-arrow" aria-hidden="true">${icon.arrow}</span><span class="offer">${esc(p.offer)}</span></li>`).join('')}</ul>
       ${r.flags.map(f => `<p class="msg warn">${icon.alert}<span><strong>${esc(f.text)}.</strong> ${esc(f.explain)}</span></p>`).join('')}
@@ -303,14 +304,14 @@ const strandPaths = new Map();
 function drawStrands() {
   const svg = $('#strands'), home = $('#home'); if (!svg || !home) return;
   if (innerWidth < 900) { svg.innerHTML = ''; strandPaths.clear(); return; }
-  const hr = home.getBoundingClientRect(), g = $('#goal').getBoundingClientRect();
-  const ax = g.left - hr.left - 12, ay = g.top - hr.top + g.height / 2;
+  const hr = home.getBoundingClientRect(), g = $('.goal-wrap').getBoundingClientRect();
+  const ax = g.left - hr.left - 34, sx = g.left - hr.left + 8, ay = g.top - hr.top + g.height / 2;
   svg.setAttribute('width', hr.width); svg.setAttribute('height', hr.height);
   const want = new Set();
   $$('#results li.selected').forEach(li => {
     const box = $('.box', li).getBoundingClientRect(); const id = li.dataset.id; want.add(id);
     const tx = box.left - hr.left + 2, ty = box.top - hr.top + box.height / 2;
-    const d = `M${ax + 10} ${ay} C${ax - 22} ${ay + 40}, ${ax - 22} ${ty - 120}, ${tx - 12} ${ty - 6} S${tx - 6} ${ty}, ${tx} ${ty}`;
+    const d = `M${sx} ${ay} C${ax} ${ay + 30}, ${ax} ${ty - 120}, ${tx - 12} ${ty - 6} S${tx - 6} ${ty}, ${tx} ${ty}`;
     let p = strandPaths.get(id);
     if (!p) {
       p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
