@@ -6,6 +6,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { spawn } = require('node:child_process');
+const http = require('node:http');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -46,8 +47,8 @@ const post = async (p, body, jarObj) => { const r = await fetch(BASE + p, { meth
 const patch = async (p, body, jarObj) => { const r = await fetch(BASE + p, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...(jarObj ? jarObj.header() : {}) }, body: JSON.stringify(body) }); if (jarObj) jarObj.absorb(r); return r; };
 const get = async (p, jarObj) => { const r = await fetch(BASE + p, { headers: jarObj ? jarObj.header() : {} }); if (jarObj) jarObj.absorb(r); return r; };
 
-async function signup(j, { email, name, age = 'adult', password = 'hunter2abc' } = {}) {
-  const r = await post('/api/auth/signup', { email: email || `u${Math.random().toString(36).slice(2)}@test.dev`, password, name: name || 'Test User', ageCategory: age, confirm13: age === 'teen' }, j);
+async function signup(j, { email, name, password = 'hunter2abc', interests } = {}) {
+  const r = await post('/api/auth/signup', { email: email || `u${Math.random().toString(36).slice(2)}@test.dev`, password, name: name || 'Test User', confirm18: true, interests }, j);
   assert.ok([200, 201].includes(r.status), 'signup succeeded: ' + r.status);
   return r.json();
 }
@@ -65,15 +66,24 @@ test('session: anonymous identity via HttpOnly cookie, name set via profile', as
   assert.equal((await post('/api/profile', { name: '' }, j)).status, 400);
 });
 
-test('signup: creates account, signs in, rejects bad passwords and duplicate emails', async () => {
+test('signup: 18+ confirmation required, account is always adult', async () => {
+  const j = jar();
+  const noBox = await post('/api/auth/signup', { email: `no18-${Date.now()}@test.dev`, password: 'hunter2abc', name: 'No Box' }, jar());
+  assert.equal(noBox.status, 400, 'signup without the 18+ box is rejected');
+  assert.match((await noBox.json()).error, /18 and over/);
+  // the server always stores an adult account; a claimed ageCategory is ignored
+  const me = await signup(j, { name: 'Ana Adult' });
+  assert.ok(me.signedIn && me.ageCategory === 'adult');
+  assert.ok(!(await (await get('/api/auth/me', j)).json()).isGuest);
+});
+
+test('signup: rejects bad passwords and duplicate emails; sign-in works', async () => {
   const j = jar();
   const email = `acc${Date.now()}@test.dev`;
-  const me = await signup(j, { email, name: 'Ana Adult' });
-  assert.ok(me.signedIn && me.email === email && me.ageCategory === 'adult');
-  assert.ok(!(await (await get('/api/auth/me', j)).json()).isGuest);
-  const badPw = await post('/api/auth/signup', { email: `x${Date.now()}@test.dev`, password: 'short', name: 'X', ageCategory: 'adult' }, jar());
+  await signup(j, { email, name: 'Ana Adult' });
+  const badPw = await post('/api/auth/signup', { email: `x${Date.now()}@test.dev`, password: 'short', name: 'X', confirm18: true }, jar());
   assert.equal(badPw.status, 400, 'weak password rejected');
-  const dup = await post('/api/auth/signup', { email, password: 'hunter2abc', name: 'Ana Adult', ageCategory: 'adult' }, jar());
+  const dup = await post('/api/auth/signup', { email, password: 'hunter2abc', name: 'Ana Adult', confirm18: true }, jar());
   assert.equal(dup.status, 409, 'duplicate email rejected');
   const wrong = await post('/api/auth/signin', { email, password: 'wrong-pass-99' }, jar());
   assert.equal(wrong.status, 401, 'wrong password rejected with same message as unknown email');
@@ -213,48 +223,35 @@ test('approval mode: join creates a pending request the owner approves', async (
   assert.equal(now.status, 201, 'approved requester can post');
 });
 
-test('age gates: guests never enter teen groups; teen and adult accounts are separated', async () => {
-  const teen = jar(), adult = jar(), guest = jar();
+test('age scope: accounts are adults; guests stay out of real groups, members out of demo sandboxes', async () => {
+  const adult = jar(), guest = jar();
   await post('/api/session', {}, guest);
-  await signup(teen, { email: `teen${Date.now()}@test.dev`, name: 'Tina Teen', age: 'teen' });
-  await signup(adult, { email: `adult${Date.now()}@test.dev`, name: 'Al Adult', age: 'adult' });
-  // teen owner creates a teen group
-  const teenRoom = await (await post('/api/rooms', { requestId: 'req-teen', title: 'Teen filmmakers', goal: 'Teen film club, online.', memberIds: [], ageScope: 'teen' }, teen)).json();
-  assert.ok(teenRoom.room.ageScope === 'teen');
-  // adult cannot create a teen group
+  await signup(adult, { email: `adult${Date.now()}@test.dev`, name: 'Al Adult' });
+  // an adult cannot lead a teen group
   const nope = await post('/api/rooms', { requestId: 'req-adult-teen', title: 'X', goal: 'X.', memberIds: [], ageScope: 'teen' }, adult);
   assert.equal(nope.status, 403, 'adult cannot lead a teen group');
-  // adult cannot join the teen group even with the invite code
-  const adultJoin = await post('/api/rooms/join', { code: teenRoom.room.inviteCode }, adult);
-  assert.equal(adultJoin.status, 403, 'adult cannot join teen group');
-  // guest (unverified age) cannot join the teen group either
-  const guestJoin = await post('/api/rooms/join', { code: teenRoom.room.inviteCode }, guest);
-  assert.equal(guestJoin.status, 403, 'unverified age cannot join teen group');
-  // teen cannot join an adult group
+  // guest (no verified age) cannot join an adult group even with the invite code
   const adultRoom = await (await post('/api/rooms', { requestId: 'req-adult', title: 'Career pivot', goal: 'Career pivots, online.', memberIds: [], ageScope: 'adult' }, adult)).json();
-  const teenJoin = await post('/api/rooms/join', { code: adultRoom.room.inviteCode }, teen);
-  assert.equal(teenJoin.status, 403, 'teen cannot join adult group');
+  const guestJoin = await post('/api/rooms/join', { code: adultRoom.room.inviteCode }, guest);
+  assert.equal(guestJoin.status, 403, 'unverified age cannot join a real group');
   // signed-in account cannot join a guest demo sandbox group
   const demoRoom = await (await post('/api/rooms', { requestId: 'req-demo', title: 'Demo sandbox', goal: 'Guests only.', memberIds: ['rosa-mendes'] }, guest)).json();
   const adultDemoJoin = await post('/api/rooms/join', { code: demoRoom.room.inviteCode }, adult);
   assert.equal(adultDemoJoin.status, 403, 'signed-in members stay out of demo sandbox groups');
 });
 
-test('discovery: guests get 401; accounts only see their own age scope', async () => {
-  const guest = jar(), teen = jar(), adult = jar();
+test('discovery: guests get 401; accounts see real public groups, never demo sandboxes', async () => {
+  const guest = jar(), adult = jar();
   await post('/api/session', {}, guest);
-  await signup(teen, { email: `dteen${Date.now()}@test.dev`, name: 'Dee Teen', age: 'teen' });
-  await signup(adult, { email: `dadult${Date.now()}@test.dev`, name: 'Dan Adult', age: 'adult' });
+  await signup(adult, { email: `dadult${Date.now()}@test.dev`, name: 'Dan Adult' });
   assert.equal((await get('/api/groups', guest)).status, 401, 'guests cannot browse discovery');
-  const adultRoom = await (await post('/api/rooms', { requestId: 'd-adult', title: 'Disco adult', goal: 'Adult group for discovery.', memberIds: [], ageScope: 'adult' }, adult)).json();
-  const teenRoom = await (await post('/api/rooms', { requestId: 'd-teen', title: 'Disco teen', goal: 'Teen group for discovery.', memberIds: [], ageScope: 'teen' }, teen)).json();
+  const adultRoom = await (await post('/api/rooms', { requestId: 'd-adult', title: 'Disco crew', goal: 'Public group for discovery.', memberIds: [], ageScope: 'adult' }, adult)).json();
   const adultView = await (await get('/api/groups', adult)).json();
-  assert.ok(adultView.groups.some(g => g.id === adultRoom.room.id), 'adult sees their own public adult group');
-  assert.ok(!adultView.groups.some(g => g.id === teenRoom.room.id), 'adult never sees teen groups');
+  assert.ok(adultView.groups.some(g => g.id === adultRoom.room.id), 'account sees their own public group');
   assert.ok(!adultView.groups.some(g => g.demo), 'demo groups never appear in discovery');
-  const teenView = await (await get('/api/groups', teen)).json();
-  assert.ok(teenView.groups.some(g => g.id === teenRoom.room.id), 'teen sees teen groups');
-  assert.ok(!teenView.groups.some(g => g.id === adultRoom.room.id), 'teen never sees adult groups');
+  const guestDemo = await (await post('/api/rooms', { requestId: 'd-demo', title: 'Sandbox', goal: 'Guest demo group.', memberIds: ['maya-okafor'] }, guest)).json();
+  assert.ok(guestDemo.room.demo === true);
+  assert.ok(!adultView.groups.some(g => g.id === guestDemo.room.id), 'guest sandbox stays out of discovery');
 });
 
 test('reports: filed by any visitor and visible in the admin console', async () => {
@@ -294,6 +291,148 @@ test('moderation: held messages never reach the room and file an automatic repor
   assert.equal(safe.status, 201, 'normal messages pass');
 });
 
+test('profiles: PATCH saves optional fields, validates skills, clips interests to three', async () => {
+  const j = jar();
+  await signup(j, { name: 'Priya Profile', interests: ['chess', 'running'] });
+  const me = await patch('/api/auth/me', {
+    bio: 'Editor and runner in Plano.',
+    interests: ['chess', 'running', 'film', 'baking'],   // one too many
+    skills: ['video-editing', 'made-up-skill-xyz'],      // one invalid id
+    goals: 'Finish a short film this spring.',
+    city: 'Plano',
+    availability: ['saturday', 'sunday'],
+    mode: 'in-person'
+  }, j);
+  assert.equal(me.status, 200);
+  const body = await me.json();
+  assert.equal(body.profile.bio, 'Editor and runner in Plano.');
+  assert.equal(body.profile.interests.length, 3, 'interests clipped to three');
+  assert.deepEqual(body.profile.skills, ['video-editing'], 'invalid skill ids dropped');
+  assert.ok(body.profile.skillLabels.length === 1 && body.profile.skillLabels[0] !== 'video-editing', 'skill labels exposed, not raw ids');
+  assert.equal(body.profile.city, 'Plano');
+  assert.deepEqual(body.profile.availability, ['saturday', 'sunday']);
+  assert.equal(body.profile.mode, 'in-person');
+  // a fresh read shows the same stored profile
+  const again = await (await get('/api/auth/me', j)).json();
+  assert.equal(again.profile.goals, 'Finish a short film this spring.');
+});
+
+test('avatars: valid PNG stored, wrong type and fake bytes rejected, size capped', async () => {
+  const j = jar();
+  await signup(j, { name: 'Avi Avatar' });
+  // 1x1 transparent PNG
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+  const ok = await post('/api/auth/avatar', { image: png }, j);
+  assert.equal(ok.status, 200, 'valid PNG accepted');
+  const stored = await ok.json();
+  assert.ok(stored.profile.avatar && stored.profile.avatar.startsWith('data:image/png'), 'picture stored on the profile');
+  assert.ok(['approved', 'pending'].includes(stored.profile.avatarStatus), 'status is approved or pending when the AI check is unavailable');
+  // guests cannot upload
+  const guest = await post('/api/auth/avatar', { image: png }, jar());
+  assert.equal(guest.status, 401, 'guests cannot set a profile picture');
+  // wrong mime type
+  const badType = await post('/api/auth/avatar', { image: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' }, j);
+  assert.equal(badType.status, 400, 'only PNG, JPEG and WebP are allowed');
+  // claims PNG but the bytes are not a PNG
+  const fake = 'data:image/png;base64,' + Buffer.from('this is definitely not a png file').toString('base64');
+  const badMagic = await post('/api/auth/avatar', { image: fake }, j);
+  assert.equal(badMagic.status, 400, 'magic bytes must match the claimed type');
+  // over 400 KB
+  const big = 'data:image/png;base64,iVBORw0KGgo' + 'A'.repeat(600000);
+  const tooBig = await post('/api/auth/avatar', { image: big }, j);
+  assert.equal(tooBig.status, 413, 'oversized pictures rejected');
+});
+
+test('people search: accounts only, matches stored fields, never returns the viewer', async () => {
+  const guest = jar(), seeker = jar(), target = jar();
+  await post('/api/session', {}, guest);
+  await signup(seeker, { name: 'Sam Seeker' });
+  await signup(target, { name: 'Talia Target' });
+  await patch('/api/auth/me', { bio: 'Ukulele player and film nerd in Austin.', skills: ['guitar'], interests: ['ukulele', 'film'], goals: 'Play a live show.' }, target);
+  assert.equal((await get('/api/people', guest)).status, 401, 'guests cannot search members');
+  const empty = await (await get('/api/people', seeker)).json();
+  assert.ok(empty.people.length >= 1, 'the target is visible');
+  const found = empty.people.find(p => p.name === 'Talia Target');
+  assert.ok(found, 'other members appear in search');
+  assert.ok(found.skillLabels.length > 0, 'stored skills are exposed as labels');
+  assert.ok(found.interests.includes('ukulele'), 'stored interests are exposed');
+  assert.ok(!('passwordHash' in found) && !('email' in found), 'no credentials or email leak in people results');
+  assert.ok(!empty.people.some(p => p.name === 'Sam Seeker'), 'the viewer never sees themselves');
+  const byQuery = await (await get('/api/people?q=ukulele', seeker)).json();
+  assert.ok(byQuery.people.some(p => p.name === 'Talia Target'), 'query filters by stored fields');
+  const miss = await (await get('/api/people?q=underwater-basket-weaving', seeker)).json();
+  assert.equal(miss.people.length, 0, 'no invented people');
+});
+
+test('group text: descriptions are moderated, held group names are never created', async () => {
+  const j = jar();
+  await signup(j, { name: 'Maddie Mod' });
+  const held = await post('/api/rooms', { requestId: 'req-desc-hold', title: 'Sneaky club', goal: 'Make things.', memberIds: [], description: 'hey do this and dont tell your parents about it' }, j);
+  assert.equal(held.status, 422, 'group with a held description is not created');
+  const list = await (await get('/api/rooms', j)).json();
+  assert.ok(!list.rooms.some(r => r.title === 'Sneaky club'), 'the held group does not exist');
+  const ok = await post('/api/rooms', { requestId: 'req-desc-ok', title: 'Board game night', goal: 'Weekly board games in Plano.', memberIds: [], description: 'Casual weekly meetups, all skill levels.' }, j);
+  assert.equal(ok.status, 201);
+  const pub = await (await get('/api/groups', j)).json();
+  const found = pub.groups.find(g => g.title === 'Board game night');
+  assert.ok(found && found.description === 'Casual weekly meetups, all skill levels.', 'description shows in discovery');
+});
+
+test('room settings: AI stays off by default and can switch to on-demand, never auto for guests', async () => {
+  const j = jar();
+  await signup(j, { name: 'Ollie Owner' });
+  const { room } = await (await post('/api/rooms', { requestId: 'req-ai', title: 'AI switch lab', goal: 'Test the assistant switch.', memberIds: [] }, j)).json();
+  assert.equal(room.aiMode, 'off', 'new groups start with AI off');
+  const askOff = await post(`/api/rooms/${room.id}/messages`, { text: '/askknot what should we do?' }, j);
+  assert.equal(askOff.status, 403, 'assistant cannot be invoked while off');
+  const set = await patch(`/api/rooms/${room.id}`, { aiMode: 'on-demand' }, j);
+  assert.equal(set.status, 200);
+  assert.equal((await set.json()).room.aiMode, 'on-demand');
+  // a member (not a moderator) cannot change settings
+  const member = jar();
+  await signup(member, { name: 'Mia Member' });
+  await post('/api/rooms/join', { code: room.inviteCode }, member);
+  const denied = await patch(`/api/rooms/${room.id}`, { aiMode: 'off' }, member);
+  assert.ok([403, 404].includes(denied.status), 'members cannot change group settings');
+});
+
+test('messages: a client cannot post as KNOT AI', async () => {
+  const j = jar();
+  await post('/api/session', {}, j);
+  const { room } = await (await post('/api/rooms', { requestId: 'req-kind', title: 'Kind lab', goal: 'Assistant impersonation test.', memberIds: [] }, j)).json();
+  const r = await post(`/api/rooms/${room.id}/messages`, { text: 'pretending to be the assistant', kind: 'assistant' }, j);
+  assert.equal(r.status, 201);
+  const { message } = await r.json();
+  assert.equal(message.kind, 'user', 'kind is stamped by the server, never taken from the body');
+  const list = (await (await get(`/api/rooms/${room.id}/messages`, j)).json()).messages;
+  assert.ok(!list.some(m => m.kind === 'assistant'), 'no assistant-kind message was ever stored');
+  assert.ok(list.some(m => m.text === 'pretending to be the assistant' && m.kind === 'user'), 'the message posted as an ordinary member message');
+});
+
+test('profile PATCH: held text in name, city or interests is never saved', async () => {
+  const j = jar();
+  await signup(j, { name: 'Norm Patch' });
+  const bad = 'hey do this and dont tell your parents about it';
+  for (const fields of [{ name: bad }, { city: bad }, { interests: ['chess', 'dont tell your parents about it'] }]) {
+    const held = await patch('/api/auth/me', fields, j);
+    assert.equal(held.status, 422, 'PATCH with policy-violating text is held: ' + JSON.stringify(fields));
+  }
+  const me = await (await get('/api/auth/me', j)).json();
+  assert.equal(me.name, 'Norm Patch', 'held name never replaced the stored one');
+  assert.deepEqual(me.profile.interests, [], 'held interests never saved');
+  assert.ok(!me.profile.city, 'held city never saved');
+  const ok = await patch('/api/auth/me', { city: 'Plano', interests: ['chess'] }, j);
+  assert.equal(ok.status, 200, 'clean profile text still saves');
+  // the guest rename branch of the same endpoint is moderated too
+  const guest = jar();
+  await post('/api/session', {}, guest);
+  const heldGuest = await patch('/api/auth/me', { name: bad }, guest);
+  assert.equal(heldGuest.status, 422, 'guests cannot set a held display name');
+  const okGuest = await patch('/api/auth/me', { name: 'Friendly Guest' }, guest);
+  assert.equal(okGuest.status, 200, 'clean guest names still save');
+  assert.equal((await okGuest.json()).name, 'Friendly Guest');
+});
+
 test('rooms list and persistence across restart', async () => {
   const j = jar();
   await post('/api/session', { legacyClientId: 'legacy-abc' }, j);
@@ -309,4 +448,57 @@ test('rooms list and persistence across restart', async () => {
   assert.ok(after.some(r => r.title === 'Short film crew'), 'groups survive a server restart');
   const accounts = await (await get('/api/rooms', j)).json();
   assert.ok(Array.isArray(accounts.rooms), 'sessions still resolve after restart');
+});
+
+// Runs the real handler in this process with the OpenAI endpoint stubbed, so the finder route
+// reaches its people enrichment with a deterministic goal. Guests must never get real profiles.
+test('AI Finder: guests get no real member profiles, signed-in members do', async () => {
+  const ENV_KEYS = ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_FAST_MODEL', 'GROQ_API_KEY', 'DATABASE_URL', 'KNOT_DB_PATH'];
+  const saved = ENV_KEYS.map(k => [k, process.env[k]]);
+  const realFetch = global.fetch;
+  const finderDb = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'knot-finder-')), 'db.json');
+  process.env.OPENAI_API_KEY = 'test-key';
+  process.env.OPENAI_MODEL = 'gpt-test';
+  process.env.OPENAI_FAST_MODEL = 'gpt-fast-test';
+  process.env.GROQ_API_KEY = '';
+  process.env.DATABASE_URL = ''; // force the local JSON store at the temp path
+  process.env.KNOT_DB_PATH = finderDb;
+  global.fetch = (url, opts) => {
+    if (!String(url).startsWith('https://api.openai.com/')) return realFetch(url, opts);
+    const body = { choices: [{ message: { content: JSON.stringify({ reply: 'Checking matches for you.', goal: 'I need someone who can play guitar with me.' }) } }], usage: { prompt_tokens: 10, completion_tokens: 20 } };
+    return Promise.resolve({ ok: true, json: async () => body });
+  };
+  const serverModule = require('../server.js');
+  const srv = http.createServer(serverModule.handler);
+  try {
+    await new Promise(r => srv.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${srv.address().port}`;
+    const client = () => { let sid = null; return async (method, p, body) => {
+      const r = await realFetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(sid ? { cookie: sid } : {}) }, body: body ? JSON.stringify(body) : undefined });
+      const c = r.headers.get('set-cookie'); if (c) sid = c.split(';')[0];
+      return r;
+    }; };
+    // a member whose stored profile matches the goal the stub will return
+    const guitarist = client();
+    await (await guitarist('POST', '/api/auth/signup', { email: `gig${Date.now()}@test.dev`, password: 'hunter2abc', name: 'Gigi Guitarist', confirm18: true })).json();
+    await guitarist('PATCH', '/api/auth/me', { skills: ['guitar'] });
+    const finderBody = { history: [{ role: 'user', content: 'I want to learn guitar.' }] };
+    // guest: no real people, ever, but the demo-profile matches are untouched
+    const guest = client();
+    const g = await (await guest('POST', '/api/ai/finder', finderBody)).json();
+    assert.ok(g.result, 'finder returns a result');
+    assert.deepEqual(g.result.people, [], 'guests never receive real member profiles');
+    assert.ok(g.result.results.length >= 1, 'demo-profile matches still work for guests');
+    // another signed-in member does see the real guitarist
+    const member = client();
+    await (await member('POST', '/api/auth/signup', { email: `mem${Date.now()}@test.dev`, password: 'hunter2abc', name: 'Vera Viewer', confirm18: true })).json();
+    const m = await (await member('POST', '/api/ai/finder', finderBody)).json();
+    assert.ok(m.result.people.some(p => p.name === 'Gigi Guitarist' && p.real === true), 'signed-in members still get real people');
+  }
+  finally {
+    await new Promise(r => srv.close(r));
+    global.fetch = realFetch;
+    for (const [k, v] of saved) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    for (const p of ['../server.js', '../lib/store.js']) delete require.cache[require.resolve(p)];
+  }
 });

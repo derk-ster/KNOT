@@ -4,24 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>KNOT: find your people</title>
-  <meta name="description" content="Describe what you want to do. KNOT finds people who can do it with you, explains why, and starts the group chat.">
+  <meta name="description" content="Discover people who share your interests, build groups, and turn ideas into something real.">
   <link rel="icon" href="assets/art/knot-mark.svg" type="image/svg+xml">
   <link rel="preload" href="assets/fonts/BricolageGrotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="assets/fonts/fonts.css">
   <link rel="stylesheet" href="styles.css">
-  <script src="ambient.js" defer></script>
   <script src="app.js" defer></script>
-  <script src="helper.js" defer></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to main content</a>
   <header class="site-header">
     <div class="wrap bar">
       <a class="brand" href="#/" aria-label="KNOT, home">
-        <img src="assets/art/knot-mark.svg" width="42" height="32" alt="">
+        <img src="assets/art/knot-mark.svg" width="36" height="27" alt="">
         <span>KNOT</span>
       </a>
-      <nav class="nav" aria-label="Main">
+      <button class="menu-btn" id="menuBtn" type="button" aria-expanded="false" aria-controls="mobileNav" aria-label="Menu">
+        <svg viewBox="0 0 20 20" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 5h14M3 10h14M3 15h14"/></svg>
+      </button>
+      <nav class="nav" id="mobileNav" aria-label="Main">
         <a class="nav-link" id="navHome" href="#/">Home</a>
         <a class="nav-link" id="navDiscover" href="#/discover">Discover</a>
         <a class="nav-link" id="navFinder" href="#/finder">AI Finder</a>
@@ -30,7 +31,7 @@
           <span class="avatar sm" id="profileAvatar" aria-hidden="true">?</span>
           <span id="profileLabel">Profile</span>
         </button>
-        <button class="btn sm auth-btn" id="authBtn" type="button" aria-haspopup="dialog">Sign in</button>
+        <button class="btn sm primary auth-btn" id="authBtn" type="button" aria-haspopup="dialog">Sign in</button>
       </nav>
     </div>
   </header>

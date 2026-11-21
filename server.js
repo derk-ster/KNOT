@@ -15,6 +15,7 @@ const { examplesFor } = require('./lib/examples');
 const guide = require('./lib/guide');
 const { mapSkill } = require('./lib/skillmap');
 const { checkMessage } = require('./lib/moderate');
+const openai = require('./lib/openai');
 const { parseGoal } = require('./lib/match');
 const auth = require('./lib/auth');
 const { profiles, SKILLS, SKILL_BY_ID, matchGoal, buildAssist, cap } = require('./lib/match');
@@ -36,13 +37,13 @@ function send(res, code, body) {
   res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
   res.end(data);
 }
-function readBody(req) {
+function readBody(req, limit = 64 * 1024) {
   if (req.body !== undefined && req.body !== null && !(req.body instanceof Buffer)) { // Vercel pre-parses JSON
     try { return Promise.resolve(typeof req.body === 'string' ? (req.body ? JSON.parse(req.body) : {}) : req.body); } catch { return Promise.reject(new Error('Invalid JSON')); }
   }
   return new Promise((resolve, reject) => {
     let size = 0; const chunks = [];
-    req.on('data', c => { size += c.length; if (size > 64 * 1024) { reject(new Error('Request too large')); req.destroy(); } else chunks.push(c); });
+    req.on('data', c => { size += c.length; if (size > limit) { reject(new Error('Request too large')); req.destroy(); } else chunks.push(c); });
     req.on('end', () => { try { resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {}); } catch { reject(new Error('Invalid JSON')); } });
     req.on('error', reject);
   });
@@ -77,13 +78,24 @@ async function getSession(req, res) {
 // What a signed-in account looks like to its own client. Never includes password material.
 function mePayload(user, account) {
   if (!user.accountId) return { signedIn: false, id: user.id, name: user.name, isGuest: true };
-  return { signedIn: true, id: user.id, accountId: user.accountId, name: account ? account.name : user.name, email: account ? account.email : null, ageCategory: account ? account.ageCategory : null, isGuest: false };
+  return {
+    signedIn: true, id: user.id, accountId: user.accountId,
+    name: account ? account.name : user.name, email: account ? account.email : null,
+    ageCategory: account ? account.ageCategory : null, isGuest: false,
+    profile: account ? {
+      bio: account.bio || '', interests: account.interests || [], skills: account.skills || [],
+      skillLabels: account.skillLabels || [], goals: account.goals || '', city: account.city || '',
+      availability: account.availability || [], mode: account.mode || 'both', avatar: account.avatar || null,
+      avatarStatus: account.avatarStatus || null
+    } : null
+  };
 }
 
 function publicRoom(room, withMessages, user) {
   const realMembers = (room.members || []).map(m => ({
     id: m.pid, name: m.name, role: m.role || 'member', demo: false, you: user ? m.pid === (user.accountId ? 'a:' + user.accountId : String(user.id)) : false,
-    city: '', modeText: 'Joined member', skillLabels: [], availabilityText: 'Joined member', availabilityDays: null
+    city: m.city || '', modeText: m.modeText || 'Joined member', skillLabels: m.skillLabels || [],
+    availabilityText: m.availabilityText || 'Not listed', availabilityDays: m.availabilityDays || null, avatar: m.avatar || null
   }));
   const demoMembers = (room.demoMembers || []).map(m => ({ ...m, demo: true, you: false }));
   const members = [...realMembers, ...demoMembers];
@@ -110,6 +122,51 @@ function memberSnapshot(p) {
   return { id: p.id, name: p.name, city: p.city, modeText: { both: 'in person or online', 'in-person': 'in person only', online: 'online only' }[p.mode],
     skillLabels: p.skills.map(s => SKILL_BY_ID[s.id].label), availabilityDays: p.availability ? p.availability.days : null,
     availabilityText: p.availability ? p.availability.days.map(cap).join(', ') : 'Availability unknown' };
+}
+
+// Real members whose STOREED skills, interests or goals overlap the parsed goal. Reasons cite the
+// stored fields only; nothing is invented. Used by the AI Finder next to the demo-profile matches.
+async function peopleForGoal(goal, viewerAccountId) {
+  const p = parseGoal(goal, {});
+  const needLabels = p.needs.map(id => SKILL_BY_ID[id].label);
+  const text = goal.toLowerCase();
+  const people = await store.listPeople({ query: null, viewerAccountId }).catch(() => []);
+  const scored = [];
+  for (const person of people) {
+    const reasons = [];
+    for (const id of p.needs) if ((person.skills || []).includes(id)) reasons.push(`Lists ${SKILL_BY_ID[id].label} in their skills`);
+    const interestHits = (person.interests || []).filter(i => needLabels.some(l => i.toLowerCase().includes(l.split(' ')[0])) || text.includes(i.toLowerCase()));
+    for (const i of interestHits) reasons.push(`Interested in ${i}`);
+    if (person.goals && p.topics.length && p.topics.some(t => person.goals.toLowerCase().includes(t))) reasons.push('Has a similar goal on their profile');
+    if (reasons.length) scored.push({ person, reason: [...new Set(reasons)].slice(0, 2).join(' and ') });
+  }
+  return scored.slice(0, 3).map(({ person, reason }) => ({
+    id: 'a:' + person.id, name: person.name, city: person.city, bio: person.bio, goals: person.goals,
+    interests: person.interests, skillLabels: person.skillLabels, avatar: person.avatar,
+    modeText: { both: 'in person or online', 'in-person': 'in person only', online: 'online only' }[person.mode || 'both'],
+    availability: person.availability, reason, real: true
+  }));
+}
+
+// When the demo community has no exact match, point at real public groups that touch the same
+// topics, with the reason spelled out. Only groups the viewer is allowed to discover are listed.
+async function relatedGroups(goal, user) {
+  const account = user.accountId ? await store.getAccountById(user.accountId) : null;
+  if (!account) return [];
+  const p = parseGoal(goal, {});
+  const words = goal.toLowerCase().split(/[^a-z]+/).filter(w => w.length > 3);
+  const groups = await store.listPublicGroups({ ageCategory: account.ageCategory, viewerPrincipal: user.accountId }).catch(() => []);
+  return groups
+    .map(g => {
+      const text = [g.title, g.goal, g.description, g.category].filter(Boolean).join(' ').toLowerCase();
+      const hits = words.filter(w => text.includes(w)).length;
+      const topicHit = p.topics.length && p.topics.some(t => text.includes(t));
+      return { g, hits: hits + (topicHit ? 2 : 0) };
+    })
+    .filter(x => x.hits > 0)
+    .sort((a, b) => b.hits - a.hits)
+    .slice(0, 3)
+    .map(({ g }) => ({ id: g.id, title: g.title, goal: g.goal, memberCount: g.memberCount, capacity: g.capacity, city: g.city, onlineOnly: g.onlineOnly, joinMode: g.joinMode }));
 }
 
 // Age gate: every real group is scoped teen or adult. Teens stay with teens, adults with adults,
@@ -144,15 +201,17 @@ async function api(req, res, url) {
       const b = await readBody(req);
       const email = str(b.email, 120).toLowerCase();
       const name = str(b.name, 40);
-      const age = b.ageCategory === 'teen' ? 'teen' : (b.ageCategory === 'adult' ? 'adult' : null);
+      // KNOT is for members 18 and over. One required checkbox, no age options to game.
       if (!auth.validEmail(email)) return send(res, 400, { error: 'Enter a valid email address.' });
       if (!name) return send(res, 400, { error: 'Add a display name.' });
       const pwErr = auth.passwordProblem(b.password);
       if (pwErr) return send(res, 400, { error: pwErr });
-      if (!age) return send(res, 400, { error: 'Select your age group (13 to 17, or 18 and over).' });
-      if (age === 'teen' && b.confirm13 !== true) return send(res, 400, { error: 'Teen accounts need a parent or guardian permission confirmation.' });
+      if (b.confirm18 !== true) return send(res, 400, { error: 'KNOT is for members 18 and over. Confirm your age to continue.' });
+      const interests = (Array.isArray(b.interests) ? b.interests : []).map(x => str(x, 40)).filter(Boolean).slice(0, 3);
+      const mod = await checkMessage(name + ' ' + interests.join(' '));
+      if (mod.action === 'hold') return send(res, 400, { error: 'That display name or interest cannot be used. Pick something else.' });
       try {
-        const account = await store.createAccount({ email, passwordHash: auth.hashPassword(b.password), name, ageCategory: age });
+        const account = await store.createAccount({ email, passwordHash: auth.hashPassword(b.password), name, ageCategory: 'adult', interests });
         await store.adoptAccount(user.id, account.id);
         await store.updateUser(user.id, { name, isGuest: false });
         return send(res, 201, mePayload(await store.ensureUser(user._sid), account));
@@ -181,14 +240,61 @@ async function api(req, res, url) {
       await store.updateUser(user.id, { isGuest: true, accountId: null });
       return send(res, 200, { signedIn: false, isGuest: true, deleted: true });
     }
+    // Profile editing: every field is optional, validated and clipped here, never trusted from the client.
     if (m === 'PATCH' && parts[1] === 'me') {
       const b = await readBody(req);
-      const name = str(b.name, 40);
-      if (name && user.accountId) {
-        await store.updateAccount(user.accountId, { name });
-        await store.updateUser(user.id, { name });
-      } else if (name) await store.updateUser(user.id, { name });
-      return send(res, 200, mePayload(await store.ensureUser(user._sid), user.accountId ? await store.getAccountById(user.accountId) : null));
+      if (b.name !== undefined && !str(b.name, 40)) return send(res, 400, { error: 'Add a display name.' });
+      if (!user.accountId) {
+        // guests can still rename their session, but the name is moderated like any account name
+        if (b.name !== undefined) {
+          const guestMod = await checkMessage(str(b.name, 40));
+          if (guestMod.action === 'hold') return send(res, 422, { error: 'That display name cannot be used. Pick something else.', held: true });
+          await store.updateUser(user.id, { name: str(b.name, 40) });
+        }
+        return send(res, 200, mePayload(await store.ensureUser(user._sid), null));
+      }
+      const fields = {};
+      if (b.name !== undefined) fields.name = str(b.name, 40);
+      if (b.bio !== undefined) fields.bio = str(b.bio, 300);
+      if (b.interests !== undefined) fields.interests = (Array.isArray(b.interests) ? b.interests : []).map(x => str(x, 40)).filter(Boolean).slice(0, 3);
+      if (b.skills !== undefined) fields.skills = (Array.isArray(b.skills) ? b.skills : []).filter(id => SKILL_IDS.has(id)).slice(0, 12);
+      if (b.goals !== undefined) fields.goals = str(b.goals, 300);
+      if (b.city !== undefined) fields.city = str(b.city, 60);
+      if (b.availability !== undefined) fields.availability = (Array.isArray(b.availability) ? b.availability : []).map(d => str(d, 12).toLowerCase()).slice(0, 7);
+      if (b.mode !== undefined && ['both', 'in-person', 'online'].includes(b.mode)) fields.mode = b.mode;
+      // The same text-moderation pass as signup: every field that will be shown to other members
+      // (name, bio, goals, interests, city) is checked before anything is saved.
+      if (fields.name !== undefined || fields.bio !== undefined || fields.goals !== undefined || fields.interests !== undefined || fields.city !== undefined) {
+        const mod = await checkMessage([fields.name, fields.bio, fields.goals, (fields.interests || []).join(' '), fields.city].filter(Boolean).join(' '));
+        if (mod.action === 'hold') return send(res, 422, { error: 'That text was held for review. Rewrite it and try again.', held: true });
+      }
+      const account = await store.updateAccount(user.accountId, fields);
+      if (fields.name) await store.updateUser(user.id, { name: fields.name });
+      return send(res, 200, mePayload(await store.ensureUser(user._sid), account));
+    }
+    // Profile picture: type and size validated, magic bytes checked, AI-moderated when configured.
+    // A rejected picture is never stored or shown.
+    if (m === 'POST' && parts[1] === 'avatar') {
+      if (!user.accountId) return send(res, 401, { error: 'Sign in to add a profile picture.' });
+      if (!limited(req, 'avatar', 6)) return send(res, 429, { error: 'Too many picture uploads in a minute. Try again shortly.' });
+      let b; try { b = await readBody(req, 1024 * 1024); } catch { return send(res, 413, { error: 'That picture is too large. Use one under 400 KB.' }); }
+      const img = String((b && b.image) || '');
+      const match = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(img);
+      if (!match) return send(res, 400, { error: 'Upload a PNG, JPEG or WebP picture.' });
+      const buf = Buffer.from(match[2].slice(0, 16), 'base64');
+      const magicOk = (match[1] === 'png' && buf.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+        || (match[1] === 'jpeg' && buf[0] === 0xff && buf[1] === 0xd8)
+        || (match[1] === 'webp' && buf.slice(0, 4).toString() === 'RIFF');
+      if (!magicOk) return send(res, 400, { error: 'That file is not a real picture. Export it as PNG, JPEG or WebP and try again.' });
+      if (Math.floor(match[2].length * 3 / 4) > 400 * 1024) return send(res, 413, { error: 'Keep the picture under 400 KB.' });
+      const mod = await openai.moderateImage(img);
+      if (mod && mod.flagged) {
+        await store.updateAccount(user.accountId, { avatar: null, avatarStatus: 'rejected' });
+        await store.addReport({ reporterUser: user, roomId: null, targetPid: 'a:' + user.accountId, reason: 'Automatic photo moderation', details: 'Profile picture flagged as: ' + mod.categories.join(', '), status: 'open' }).catch(() => {});
+        return send(res, 422, { error: 'That picture was flagged by moderation, so KNOT cannot use it. Pick a different photo.' });
+      }
+      const account = await store.updateAccount(user.accountId, { avatar: img, avatarStatus: mod ? 'approved' : 'pending' });
+      return send(res, 200, mePayload(await store.ensureUser(user._sid), account));
     }
     if (m === 'GET' && parts[1] === 'me') {
       const fresh = await store.ensureUser(user._sid);
@@ -237,11 +343,23 @@ async function api(req, res, url) {
     const b = await readBody(req);
     if (parts[1] === 'help') return send(res, 200, await helpTurn({ history: b.history, context: b.context }));
     if (parts[1] === 'finder') {
-      if (!llm.enabled()) return send(res, 503, { error: 'The AI Finder is not configured on this server. Use the Home page to describe your goal instead.' });
+      if (!llm.enabled()) return send(res, 503, { error: 'The AI Finder is not configured on this server. Use the matching box on this page instead.' });
       const me = b.me || {};
       const clean = { skills: (Array.isArray(me.skills) ? me.skills : []).filter(id => SKILL_IDS.has(id)), availability: [] };
-      try { const out = await finderTurn({ history: b.history, me: clean }); out.next = guide.fromFinder(out); return send(res, 200, out); }
-      catch (e) { return send(res, e.status || 502, { error: e.status ? e.message : `The AI Finder is unavailable (${e.message}). Your messages are still here; try again, or use the Home page.` }); }
+      try {
+        const out = await finderTurn({ history: b.history, me: clean });
+        out.next = guide.fromFinder(out);
+        // Alongside the demo-profile matches, show real members and, when nothing fits,
+        // real public groups that touch the same topic. Both come from stored data only.
+        if (out.result) {
+          const user = await getSession(req, res);
+          // Real member profiles are for signed-in members only; a guest gets none, ever.
+          out.result.people = user.accountId ? await peopleForGoal(out.goal, user.accountId) : [];
+          if (!out.result.results.length) out.result.alternativeGroups = await relatedGroups(out.goal, user);
+        }
+        return send(res, 200, out);
+      }
+      catch (e) { return send(res, e.status || 502, { error: e.status ? e.message : `The AI Finder is unavailable (${e.message}). Your messages are still here; try the matching box on this page.` }); }
     }
     if (parts[1] === 'interpret') { // AI-assisted goal reading; falls back to local rules on any failure
       const b = await readBody(req);
@@ -275,6 +393,14 @@ async function api(req, res, url) {
     if (mapped && mapped.ids.length && !mapped.ids.includes('anything')) out.notice = `KNOT read that as ${mapped.ids.map(id => SKILL_BY_ID[id].label).join(' and ')}, the closest thing it knows.`;
     out.next = guide.fromMatch({ goal, hasProfile: clean.skills.length > 0, results: out.results, empty: out.empty });
     return send(res, 200, out);
+  }
+
+  // ---------- people search (accounts only; real members, stored profile fields only) ----------
+  if (m === 'GET' && parts[0] === 'people') {
+    const user = await getSession(req, res);
+    if (!user.accountId) return send(res, 401, { error: 'Sign in to search members.' });
+    const people = await store.listPeople({ query: url.searchParams.get('q'), viewerAccountId: user.accountId });
+    return send(res, 200, { people });
   }
 
   // ---------- public group discovery (accounts only; guests see labeled demo content elsewhere) ----------
@@ -333,14 +459,17 @@ async function api(req, res, url) {
       const account = user.accountId ? await store.getAccountById(user.accountId) : null;
       // A person can only lead a group inside their own age scope (teens lead teen groups).
       if (account && account.ageCategory !== ageScope) return send(res, 403, { error: ageScope === 'teen' ? 'Teen groups are created by members aged 13 to 17.' : 'Adult groups are created by members 18 and over.' });
+      const desc = str(b.description, 300);
+      const mod = await checkMessage(title + ' ' + goal + ' ' + (desc || ''));
+      if (mod.action === 'hold') return send(res, 422, { error: 'That group text was held for review, so the group was not created. Rewrite the name, goal or description.', held: true });
       const made = await store.createRoom({
         id: crypto.randomBytes(5).toString('hex'), inviteCode: crypto.randomBytes(12).toString('base64url'),
-        requestId, title, goal, description: str(b.description, 300) || null, category: str(b.category, 40) || null,
+        requestId, title, goal, category: str(b.category, 40) || null,
         visibility, joinMode, capacity, onlineOnly: !!b.onlineOnly, city: str(b.city, 60) || null,
         ageScope, demo: !user.accountId, aiMode: 'off',
         ownerUserId: user.accountId ? null : user.id, ownerAccountId: user.accountId || null,
         ownerName: user.name, ownerAgeCategory: account ? account.ageCategory : null,
-        legacyClientId: str(b.clientId, 80), demoMembers: members
+        legacyClientId: str(b.clientId, 80), demoMembers: members, description: desc || null
       });
       if (!made.room) return send(res, 500, { error: 'The group could not be saved. Please try again.' });
       return send(res, made.duplicate ? 200 : 201, { room: publicRoom(made.room, true, user), duplicate: made.duplicate });
@@ -403,10 +532,11 @@ async function api(req, res, url) {
         await store.addReport({ reporterUser: user2, roomId: room.id, targetPid: myPid, reason: mod.reason, details: 'Automatic hold. Message text: ' + text.slice(0, 500), status: 'open' });
         return send(res, 422, { error: 'KNOT held this message for review. A group moderator will look at it. If you think this is a mistake, you can report the issue to the organizer instead.', held: true });
       }
-      // The author is always this session's principal; anything the client claims about itself is ignored.
+      // The author is always this session's principal; anything the client claims about itself is
+      // ignored. "kind" too: only the /askknot and ai_mode paths above ever write an assistant message.
       const msg = await store.addMessage(room, {
         userId: user2.accountId ? null : user2.id, accountId: user2.accountId || null,
-        authorName: user2.name, text, clientMsgId: str(b.clientMsgId, 60) || null, kind: b.kind
+        authorName: user2.name, text, clientMsgId: str(b.clientMsgId, 60) || null, kind: 'user'
       });
       // ai_mode 'on': after each member message, KNOT AI posts one short reply (never as a human).
       if (room.aiMode === 'on' && !msg.duplicate) {
@@ -475,6 +605,10 @@ async function api(req, res, url) {
       const fields = {};
       if (b.title !== undefined) { const t = str(b.title, 80); if (t) fields.title = t; }
       if (b.description !== undefined) fields.description = str(b.description, 300);
+      if (fields.title !== undefined || fields.description !== undefined) {
+        const mod = await checkMessage([fields.title, fields.description].filter(Boolean).join(' '));
+        if (mod.action === 'hold') return send(res, 422, { error: 'That group text was held for review, so the change was not saved.', held: true });
+      }
       if (b.category !== undefined) fields.category = str(b.category, 40);
       if (b.visibility !== undefined && (b.visibility === 'public' || b.visibility === 'private')) fields.visibility = b.visibility;
       if (b.joinMode !== undefined && (b.joinMode === 'open' || b.joinMode === 'request')) fields.joinMode = b.joinMode;

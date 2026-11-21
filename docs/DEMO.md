@@ -1,23 +1,50 @@
-# Demo plan (4 minutes + 3 minutes Q&A)
+# Demo plan (6 minutes + 3 minutes Q&A)
+
+KNOT 3.0. Accounts are 18 and over, matching lives on the AI Finder page, Discover has Groups and People tabs, and rooms have real member menus, join approvals and a group assistant. Every step below was checked against the code on `feature/knot-3-redesign` (HEAD 6e2db58).
 
 ## Before presenting
 
-- One laptop opens the deployed site (Vercel URL). A second laptop (or phone) stands by with a different browser profile.
-- Both must use the deployed URL with `DATABASE_URL` configured, so groups/messages are shared.
-- Rehearse the goal text typing (don't paste; typing live looks better).
+- Two devices, and both people signed in. This is now a hard requirement: the server refuses to let a guest join a real group ("This group is for members 18 and over."). Create account B ahead of time and fill its profile: city Plano, skill video editing, interest filmmaking. That account is what makes the "Real members" moment in the AI Finder chat work.
+- Deploy with `DATABASE_URL` set, or run `node server.js` on one machine and use two browsers. On Vercel without a database, groups live in the visitor's browser and the invite link will not cross devices.
+- Optional: create one public group from account B beforehand ("Board game night in Plano", public, anyone can join). It gives Home and Discover real content to show.
+- Optional but recommended: set `OPENAI_API_KEY` (or `GROQ_API_KEY`) so the AI Finder chat and the group assistant work. Without a key the site says so plainly, the matching box still works, and you skip beats 5 and 9.
+- Rehearse typing the goal live. Do not paste.
+- Start clean: delete `data/db.json` or use fresh accounts, so old rooms do not confuse the run.
+
+## Cast
+
+- Device A, on the projector: account A, signing up live during the demo.
+- Device B, phone or second laptop: account B, already signed in, profile already filled in.
 
 ## Script
 
-1. **0:00 to 0:30. Home.** Say the pitch: "KNOT finds the people who can help you make something happen." Type the goal live:
+1. **0:00 to 0:30. Home.** Say the pitch: "KNOT finds the people who can help you make something happen, and shows you why they fit." Point at "How KNOT works" (find people, join or create groups, collaborate) and the three KNOT AI cards (matching, recommendations, group assistance). Then click the hero button "Find your people".
+2. **0:30 to 1:15. Account, 18 and over, profile.** From Home, click "Create free account". Enter an email, a password (at least 8 characters, with letters and numbers) and a display name. Add up to 3 interests, for example filmmaking and chess. Say: "KNOT is for members 18 and over. The signup box is required, and the server rejects the request without it." Tick "I am 18 years or older." and press Create account. Expect the profile dialog to open by itself. Add a short bio, tick the skill "filming" (or type your own skill), set "What you want to work on", open "Location and availability" and set City Plano, tick Saturday, and leave meeting preference on "Either". Optional: press Upload picture. Expect "Picture saved." Say: "The browser shrinks the picture, then the server checks the file type, the real bytes, the 400 KB cap and image moderation when a key is configured. A rejected picture is never stored." Press Save profile.
+3. **1:15 to 2:15. AI Finder, explained matches.** You are on the AI Finder page. Type the goal live:
    `I want to make a short film in Plano and need someone who can edit.`
-2. **0:30 to 1:15. AI Finder / results.** Press Find my people. Show the "What KNOT understood" chips (video editing, Plano). Open "Why this match?" on Maya: the evidence rows are her actual stored profile facts. Point out the "Online only" caveat on Priya: honest limitations, not fake percentages.
-3. **1:15 to 2:00. Edit the goal.** Change "in Plano" to "online" and re-run. Results react: the Plano requirement disappears and online-only people become first-class matches. Judges can type anything here; the matcher is not scripted.
-4. **2:00 to 2:45. Group creation.** Tick Maya, press Create group, name the room, watch the knot animation, land in the chat.
-5. **2:45 to 3:30. Cross-computer chat.** On the second device, open the invite link (copied from the room). The joiner appears as a real member. Send a message from the second device; it appears on the first within ~2 seconds. Both messages persist after refresh (shared database).
-6. **3:30 to 4:00. Assistant.** Press "Help us get started": the draft is built from the group's goal and members' stated skills and free days, labeled as a draft, editable, and the chat works even if AI is off. Close with the tagline.
+   Press "Find my people". Expect the chips "You offer: filming", "Looking for: video editing" and a "Plano" chip with an x. Expect Maya Okafor's card: "Brings video editing (DaVinci Resolve), sound design (dialogue cleanup)", a reason sentence, and the pair row "You need video editing" to "Maya offers video editing (DaVinci Resolve)". Press "Why this match?" on Maya: "Exactly what KNOT used" lists her skills, goals, city, meeting preference and availability, plus "How this was decided: KNOT local rules... No AI model was used." Scroll to Priya Raman and point at the "Online only" caveat: she is in Plano but prefers online meetups. Say: "Every line is a stored profile field. There are no compatibility percentages anywhere, and KNOT never invents a schedule."
+4. **2:15 to 2:40. Edit the goal.** Change "in Plano" to "online" and press Find my people again. Expect the Plano chip to be replaced by an "Online" chip, and a different set of people. Judges can type anything here; the matcher is not scripted.
+5. **2:40 to 3:10. AI Finder chat and real members.** In "Talk it through with the AI Finder", send: "I need someone to edit my short film." Expect a short reply, match cards, and a "Real members" label listing account B with a one-line reason taken from its stored profile ("Lists video editing in their skills"). Press "Show in the matcher" to run the same goal in the deterministic box above. Say: "The model only reads the words. The people and the reasons still come from stored profiles." If AI is not configured, the inputs are disabled and the page says the matching box runs on local rules, so skip this beat.
+6. **3:10 to 3:45. Create group.** Tick "Add to group" on Maya. Expect the bar "Maya selected. Ready to start a group?". Press Create group. Expect the goal quoted, the name prefilled as "Make a short film in Plano", and a short description field. Open "Who can find this group", set Visibility to Public and Joining to "You approve each request", leave the cap at 12, and note the line "This group is for members 18 and over, because that is your account's age group." Press Create group. Expect the knot animation, then the room: the title, the goal line, "2/12 members, Public, owner approves joins, Plano", the chat with "The group is tied...", and the member list with you marked You and Owner, and Maya marked Demo. Say: "Maya is a fictional demo profile and the badge says so. She will not reply."
+7. **3:45 to 4:30. Invite, join approval, cross-device chat.** Press "Invite" (or Copy in the invite link box). Expect "Invite link copied." On device B open the link: because the owner approves joins, B gets a preview with an "Ask to join" button. B presses it and sees "Request sent. The owner will approve it." On device A, within a few seconds (the room polls every 3.5 seconds), a "Join requests" panel appears with B's name and "18+", plus Approve and Decline. Press Approve. B reloads the page (polling only starts once you are a member), sends a message, and it appears on A within about 3.5 seconds. Reply from A, then refresh both: the messages persist. Say: "Message authors are stamped by the server. A browser cannot claim to be someone else."
+8. **4:30 to 5:00. Member menus and moderator tools.** On A, open the "..." menu next to B's name. Expect Make moderator, Make owner, Remove from group, Remove and keep out, Block and Report. Press Make moderator: "Role updated." and B gets a Mod chip. Open Maya's menu instead: "Demo profiles are fictional, so no actions apply." Say: "A block runs both ways, so neither person turns up in the other's matches or join requests. A report goes to a human, and the person reported is never told who filed it."
+9. **5:00 to 5:30. Group assistant, off by default.** Press Group settings. Expect the group name, the description, and "KNOT AI in this chat: Off / On-demand" with the note that the default is Off, plus owner-only visibility and joining. Say: "Off unless the owner opts in, and On-demand means a member has to press the button." Choose On-demand and Save. Expect the notice "KNOT AI is switched on in this group..." and an "Ask KNOT" button next to Send. Type "What should we do first?" and press Ask KNOT: the reply is a separate bubble labelled KNOT AI. Switch it back to Off and point out that the notice and the button disappear and the chat keeps working.
+10. **5:30 to 6:00. Discover, then close.** Click Discover. Expect the Groups and People tabs, and the group you just made listed with "asks to join" in its meta. Type "board" in the search and press Join on the pre-seeded group: you land in that room as a member. Switch to People and type "film": expect real accounts whose stored name, bio, goals, city, interests or skills match, including account B, and never your own name. Say: "People search reads stored profile fields only, and only accounts are listed." Go back to Home and close with the tagline: "Find your people. Make it happen."
+
+## If something goes wrong
+
+- **No shared database on Vercel.** The invite link will not work across devices, because groups live in the browser. Use the local server with two browsers, or set `DATABASE_URL`.
+- **No AI key.** The AI Finder chat inputs are disabled and Ask KNOT returns an error. Skip beats 5 and 9 and lean on the matching box, which never needs a model.
+- **Device B is not signed in.** The join is refused with "This group is for members 18 and over." Sign in first, then reopen the invite link.
+- **Group is full.** The default cap is 12. Raise it in Group settings, or set a bigger cap when creating the group.
+- **A picture is rejected.** Moderation flagged it, so it was never stored. Pick another photo.
 
 ## Be ready for
 
-- "Is the matching real AI?" → No model at runtime for matching; deterministic rules in `lib/match.js`, every reason traceable to a stored field. Groq models are used only in the AI Finder chat and help bot, server-side.
-- "What's real data?" → The 51 community profiles are fictional (labeled demo). User sessions, groups, messages are real and shared via Postgres.
-- "What if two people want the same group?" → Server-side sessions; invite links; RLS-style access enforced by the server (outsiders get 403).
+- "Is the matching real AI?" No. Matching is deterministic rules in `lib/match.js`. With a key, a model only reads the goal text for the AI Finder chat; the people and reasons still come from stored profile data, and every reason cites a stored field.
+- "What is real data?" The 51 community profiles are fictional and always tagged demo. Accounts, profiles, groups, memberships, messages, join requests and reports are real and shared through Postgres when `DATABASE_URL` is set.
+- "Who can see what?" Guests cannot browse Discover or join a real group. Public groups preview to signed-in non-members without the messages. Private rooms return 403 to outsiders. Invite links are only shown to members.
+- "What if two people want the same group?" The server owns sessions, roles and bans, and repeated Create clicks dedupe by request id.
+- "Is the assistant always on?" No. Off by default, On-demand is opt-in per group, and participants see a notice when it is on.
+- "Is anything moderated?" Local pattern rules always run, plus AI moderation when a key is configured. Held messages never reach the room and file a report for a human instead.
+- "Is this really 18 and over?" Yes. The signup box is required server-side, accounts are stored as adult, and guests have no verified age, so they stay out of real groups.
