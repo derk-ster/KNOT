@@ -116,11 +116,60 @@ main#main { min-height: 60vh; }
 /* one quiet violet wash, very low opacity */
 .hero::before { content: ''; position: absolute; inset: -40% -20% auto; height: 130%; background: radial-gradient(ellipse 46% 42% at 50% 30%, rgba(89, 56, 181, .09), transparent 70%); pointer-events: none; }
 .hero-copy { position: relative; max-width: 780px; margin: 0 auto; }
-.hero h1 { font-weight: 800; font-size: clamp(2.6rem, 8vw, 5.2rem); letter-spacing: -.035em; line-height: 1.02; }
-.hero-sub { color: var(--muted); font-size: clamp(1.05rem, 2.4vw, 1.3rem); max-width: 44ch; margin: 18px auto 0; line-height: 1.5; }
-.hero-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 30px; }
+
+/* The knot sits behind the headline, oversized and faint, so only a curve reads around the words.
+   Anchored to the headline block rather than the whole copy, so it stays centred when the text wraps. */
+.hero-headline { position: relative; }
+.hero-knot {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(1180px, 132%); max-width: none; height: auto;
+  opacity: .13;
+  pointer-events: none; user-select: none;
+  z-index: 0;
+}
+.hero-headline h1 { position: relative; z-index: 1; }
+
+/* Once the headline wraps to three or four lines it is taller than the knot is, and a knot
+   that is shorter than the text just reads as a flat band behind it. Below this width the knot
+   is sized from the headline's height instead, so it keeps the same proportion it has on
+   desktop and only its middle curves cross behind the words. .hero clips the overhang. */
+@media (max-width: 560px) {
+  .hero-knot { width: auto; height: 160%; }
+}
+
+/* Base weight drops to 700 so "happen" at 800 is genuinely the strongest word.
+   The display face tops out at 800, so contrast has to come from the rest stepping down. */
+.hero h1 { font-weight: 700; font-size: clamp(2.6rem, 8vw, 5.2rem); letter-spacing: -.035em; line-height: 1.02; }
+.hero-strong { font-weight: 800; letter-spacing: -.042em; }
+
+/* "people" carries a thin curved strand. The svg scales with the font, and
+   non-scaling-stroke keeps the line hairline-thin at every size. */
+.hero-people { position: relative; display: inline-block; white-space: nowrap; }
+.hero-underline {
+  position: absolute;
+  left: -.03em; bottom: -.11em;
+  width: calc(100% + .06em); height: .2em;
+  color: var(--violet);
+  opacity: .45;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.hero-sub { color: var(--muted); font-size: clamp(1.05rem, 2.4vw, 1.3rem); max-width: 44ch; margin: 14px auto 0; line-height: 1.5; }
+.hero-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 22px; }
 .hero-actions .btn { min-height: 52px; padding: 0 28px; font-size: 1.02rem; }
-.hero-knot { position: relative; width: min(720px, 92%); margin: clamp(28px, 5vw, 52px) auto 0; opacity: .3; pointer-events: none; user-select: none; }
+
+/* Main button carries the interest: a faint glow on hover, a hard ring on keyboard focus.
+   Secondary stays deliberately quiet. */
+.hero-actions .btn.primary { box-shadow: 0 4px 16px rgba(89, 56, 181, .22); }
+.hero-actions .btn.primary:hover { box-shadow: 0 6px 24px rgba(89, 56, 181, .42); }
+.hero-actions .btn.primary:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 7px rgba(89, 56, 181, .16), 0 6px 24px rgba(89, 56, 181, .35);
+}
+.hero-actions .btn.ghost { border-color: rgba(33, 30, 40, .1); }
 .section { max-width: 1080px; margin-inline: auto; padding: clamp(32px, 6vw, 64px) var(--gutter) 0; }
 .sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
 .sec-head h2 { font-size: clamp(1.5rem, 3.4vw, 2.1rem); font-weight: 700; }
