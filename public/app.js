@@ -930,12 +930,23 @@ function memberCard(m, room) {
 
 function paintRoom(room, isPoll) {
   if (!roomState || roomState.id !== room.id) return;
-  const prevCount = roomState.lastCount;
-  roomState.room = room;
   const body = $('#roomBody'); if (!body) return;
   const msgs = room.messages || [];
+  const prevCount = roomState.lastCount;
+  const prevMembers = roomState.memberCount;
+  const prevReqs = roomState.reqCount;
+  // Nothing changed since the last paint: leave the DOM alone so typing is never interrupted.
+  if (isPoll && prevCount === msgs.length
+    && prevMembers === ((room.members || []).length)
+    && prevReqs === ((room.joinRequests || []).length)) return;
+  roomState.room = room;
   roomState.lastCount = msgs.length;
-  const keepScroll = isPoll && prevCount === msgs.length;
+  roomState.memberCount = (room.members || []).length;
+  roomState.reqCount = (room.joinRequests || []).length;
+  // Keep an in-progress draft and the caret when a poll repaints the room.
+  const draftInput = $('#msgInput');
+  const wasTyping = draftInput && document.activeElement === draftInput;
+  const draft = draftInput ? draftInput.value : '';
   const isMod = room.myRole === 'owner' || room.myRole === 'moderator';
   const aiOn = room.aiMode !== 'off';
   body.innerHTML = `
@@ -980,7 +991,11 @@ function paintRoom(room, isPoll) {
   </div>`;
   const log = $('#msgLog');
   if (log) log.scrollTop = log.scrollHeight;
-  if (keepScroll) { const inp = $('#msgInput'); if (inp && document.activeElement !== inp) log.scrollTop = log.scrollHeight; }
+  const inp = $('#msgInput');
+  if (inp) {
+    if (draft) inp.value = draft;
+    if (wasTyping) { inp.focus(); try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch { /* older browsers */ } }
+  }
   // wiring
   const sendMsg = async (text) => {
     const errBox = $('#msgErr');
