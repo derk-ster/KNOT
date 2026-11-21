@@ -747,14 +747,14 @@ function openAuth(mode = 'in') {
     </div>
     ${isUp ? `
     <div class="field"><label for="aEmail">Email</label><input id="aEmail" type="email" maxlength="120" autocomplete="email" required></div>
-    <div class="field"><label for="aPass">Password</label><input id="aPass" type="password" maxlength="200" autocomplete="new-password" aria-describedby="aPassHint"><p class="hint" id="aPassHint">At least 8 characters, with letters and numbers.</p></div>
+    <div class="field"><label for="aPass">Password</label><div class="pass-wrap"><input id="aPass" type="password" maxlength="200" autocomplete="new-password" aria-describedby="aPassHint"><button type="button" class="pass-eye" id="aPassEye" aria-label="Show password" aria-controls="aPass">Show</button></div><p class="hint" id="aPassHint">At least 8 characters, with letters and numbers.</p></div>
     <div class="field"><label for="aName">Display name</label><input id="aName" type="text" maxlength="40" autocomplete="nickname"></div>
     <fieldset class="field"><legend>Interests <span class="opt">(up to 3, optional)</span></legend>
       <div class="chips" id="aInterestChips"></div>
       <div class="interest-row" id="aInterestRow"><input id="aInterest" type="text" maxlength="40" autocomplete="off" placeholder="e.g. filmmaking, chess, running"><button type="button" class="btn ghost sm" id="aInterestAdd">Add</button></div>
     </fieldset>` : `
     <div class="field"><label for="aEmail">Email</label><input id="aEmail" type="email" maxlength="120" autocomplete="email" required></div>
-    <div class="field"><label for="aPass">Password</label><input id="aPass" type="password" maxlength="200" autocomplete="current-password"></div>`}
+    <div class="field"><label for="aPass">Password</label><div class="pass-wrap"><input id="aPass" type="password" maxlength="200" autocomplete="current-password"><button type="button" class="pass-eye" id="aPassEye" aria-label="Show password" aria-controls="aPass">Show</button></div></div>`}
     <p class="msg err" id="aAuthErr" role="alert" hidden></p>
     <div class="dlg-actions ${isUp ? 'with-age' : 'spread'}">
       <button type="button" class="btn ghost" id="aSwap">${isUp ? 'I have an account' : 'New here? Create an account'}</button>
@@ -766,6 +766,17 @@ function openAuth(mode = 'in') {
   const err = () => $('#aAuthErr');
   const showErr = t => { const e = err(); e.innerHTML = icon.alert + `<span>${esc(t)}</span>`; e.hidden = false; };
   $('#aSwap').addEventListener('click', () => { d.close(); openAuth(isUp ? 'in' : 'up'); });
+  // The password starts hidden. This lets a member read back what they typed before submitting,
+  // instead of retyping a field they cannot see. The button never submits: the form posts on the
+  // submit button only.
+  const pass = $('#aPass'), eye = $('#aPassEye');
+  eye.addEventListener('click', () => {
+    const show = pass.type === 'password';
+    pass.type = show ? 'text' : 'password';
+    eye.textContent = show ? 'Hide' : 'Show';
+    eye.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    pass.focus();
+  });
   // interest chips editor
   const interests = [];
   const paintInterests = () => {
