@@ -454,3 +454,58 @@ input.next { outline: 3px solid color-mix(in srgb, var(--violet) 40%, transparen
 .custom-skill input { width: 100%; min-height: 48px; border: 1.5px solid var(--line); border-radius: 14px; padding: 0 14px; background: #fff; }
 .custom-skill input:focus { outline: 3px solid color-mix(in srgb, var(--violet) 35%, transparent); border-color: var(--violet); }
 .custom-skill .hint { margin-top: 6px; }
+
+/* ---------- KNOT 2.0: accounts, discovery, moderation, home sections ---------- */
+.auth-btn { min-height: 40px; padding: 0 14px; font-size: .92rem; white-space: nowrap; }
+
+/* entrance: hero first, then the rest, 300-700ms, respecting reduced motion */
+.reveal { opacity: 0; transform: translateY(10px); }
+body.booted .reveal { animation: reveal-in 480ms var(--ease) forwards; animation-delay: calc(var(--reveal-i, 0) * 90ms); }
+.reveal:nth-of-type(1) { --reveal-i: 0; }
+.reveal:nth-of-type(2) { --reveal-i: 1; }
+.reveal:nth-of-type(3) { --reveal-i: 2; }
+.reveal:nth-of-type(4) { --reveal-i: 3; }
+@keyframes reveal-in { to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; animation: none !important; }
+}
+
+/* home: groups preview, AI honesty section, CTA, footer */
+.home-groups, .home-ai, .home-cta { margin: 56px 0 0; padding-top: 40px; border-top: 1px solid var(--line); }
+.home-groups h2, .home-ai h2, .home-cta h2 { font-family: var(--font-display); font-size: clamp(1.4rem, 3vw, 1.9rem); margin: 0 0 6px; }
+.home-groups .lead { color: var(--muted); margin: 0 0 18px; }
+.ai-list { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 12px; max-width: 70ch; }
+.ai-list li { background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-md); padding: 14px 18px; }
+.home-cta { text-align: center; padding: 48px 20px 8px; }
+.home-cta p { color: var(--muted); max-width: 46ch; margin: 8px auto 18px; }
+.site-foot { margin: 56px 0 0; padding: 28px 0 48px; border-top: 1px solid var(--line); color: var(--muted); }
+.site-foot .small { margin: 6px 0 0; max-width: 78ch; }
+.empty.small-pad { padding: 22px; }
+
+/* discover filters */
+.disc-filters { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 14px; }
+.disc-filters input[type=search] { min-height: 46px; flex: 1 1 220px; max-width: 340px; border: 1.5px solid var(--line); border-radius: 999px; padding: 0 18px; font: inherit; background: #fff; }
+.disc-row { align-items: center; }
+.chips-col { flex-direction: column; align-items: stretch; }
+
+/* member actions menu */
+.mem-main { flex: 1 1 auto; min-width: 0; display: grid; gap: 2px; }
+.member-menu { position: relative; justify-self: end; }
+.member-menu summary { list-style: none; cursor: pointer; border: 1px solid var(--line); background: #fff; border-radius: 999px; width: 32px; height: 32px; display: grid; place-items: center; font-weight: 700; color: var(--muted); }
+.member-menu summary::-webkit-details-marker { display: none; }
+.menu-pop { position: absolute; right: 0; top: 38px; z-index: 30; background: #fff; border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: var(--shadow-2); min-width: 240px; padding: 6px; display: grid; }
+.menu-pop button { all: unset; cursor: pointer; padding: 9px 12px; border-radius: 8px; font-size: .92rem; }
+.menu-pop button:hover { background: var(--lilac); }
+.menu-pop button.danger { color: var(--brick); }
+.badge.role { background: var(--mint); color: var(--teal); }
+
+/* moderation blocks in the members aside */
+.mod-block { margin-top: 16px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--paper); }
+.mod-block h3 { margin: 0 0 8px; font-size: .9rem; }
+.mod-block ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.mod-block li { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-size: .92rem; }
+.req-row { justify-content: space-between; }
+.room-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.msg-item.ai { justify-content: flex-start; }
+.msg-item.ai .bubble { background: var(--lilac); }
+.room-head .meta { color: var(--muted); }

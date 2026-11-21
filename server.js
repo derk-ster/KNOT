@@ -1,17 +1,22 @@
 'use strict';
-// KNOT server: static files + JSON API. Zero dependencies. Storage: data/db.json.
+// KNOT server: static files + JSON API. Zero framework. Storage: shared Postgres (DATABASE_URL)
+// or a local JSON file. The server owns all identity: sessions are HttpOnly cookies, accounts are
+// scrypt-hashed, message authors and room ownership are stamped from the session, and every
+// membership/role/ban check happens here, never in the browser.
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 require('./lib/env');
 const store = require('./lib/store');
-const groq = require('./lib/groq');
-const { finderTurn, helpTurn } = require('./lib/ai');
+const { finderTurn, helpTurn, interpretGoal, roomAssistant } = require('./lib/ai');
+const llm = require('./lib/llm');
 const { examplesFor } = require('./lib/examples');
 const guide = require('./lib/guide');
 const { mapSkill } = require('./lib/skillmap');
+const { checkMessage } = require('./lib/moderate');
 const { parseGoal } = require('./lib/match');
+const auth = require('./lib/auth');
 const { profiles, SKILLS, SKILL_BY_ID, matchGoal, buildAssist, cap } = require('./lib/match');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -19,10 +24,11 @@ const PUBLIC = path.join(__dirname, 'public');
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8', '.ico': 'image/x-icon' };
 
+// ---------- rate limiting (per address, per bucket) ----------
 const hits = new Map();
-function limited(req) { // 30 AI calls per minute per address
-  const k = req.socket.remoteAddress || 'x', now = Date.now(), arr = (hits.get(k) || []).filter(x => now - x < 60000);
-  if (arr.length >= 30) { hits.set(k, arr); return false; }
+function limited(req, bucket = 'ai', max = 30, windowMs = 60000) {
+  const k = (req.socket.remoteAddress || 'x') + ':' + bucket, now = Date.now(), arr = (hits.get(k) || []).filter(x => now - x < windowMs);
+  if (arr.length >= max) { hits.set(k, arr); return false; }
   arr.push(now); hits.set(k, arr); return true;
 }
 function send(res, code, body) {
@@ -44,9 +50,10 @@ function readBody(req) {
 const str = (v, max) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max);
 const SKILL_IDS = new Set(SKILLS.map(s => s.id));
 
-// ---------- sessions ----------
-// An anonymous identity, kept in an HttpOnly cookie. The server stamps message authors and group
-// ownership from this session, so a browser cannot claim to be someone else. No email, no password.
+// ---------- sessions and accounts ----------
+// An anonymous session identity in an HttpOnly cookie; signing in attaches an account to it.
+// The principal is the account for signed-in people (identity follows them across devices) and the
+// session user for anonymous users. Clients never send identity claims; the server resolves them.
 const SID_RE = /^[a-f0-9]{32}$/;
 function parseCookies(req) {
   const out = {};
@@ -63,21 +70,35 @@ async function getSession(req, res) {
   let isNew = false;
   if (!sid) { sid = crypto.randomBytes(16).toString('hex'); isNew = true; }
   const user = await store.ensureUser(sid);
+  user._sid = sid; // internal: lets handlers refresh this user row without re-reading cookies
   if (isNew) res.setHeader('Set-Cookie', `knot_sid=${sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000` + (process.env.VERCEL ? '; Secure' : ''));
   return user;
 }
+// What a signed-in account looks like to its own client. Never includes password material.
+function mePayload(user, account) {
+  if (!user.accountId) return { signedIn: false, id: user.id, name: user.name, isGuest: true };
+  return { signedIn: true, id: user.id, accountId: user.accountId, name: account ? account.name : user.name, email: account ? account.email : null, ageCategory: account ? account.ageCategory : null, isGuest: false };
+}
 
-function publicRoom(room, withMessages, meId) {
-  const realMembers = (room.memberUserIds || []).map(uid => ({
-    id: uid, name: (room.memberNames || {})[uid] || 'Member', demo: false, you: uid === meId,
-    city: '', modeText: 'Joined via invite', skillLabels: [], availabilityText: 'Just joined', availabilityDays: null
+function publicRoom(room, withMessages, user) {
+  const realMembers = (room.members || []).map(m => ({
+    id: m.pid, name: m.name, role: m.role || 'member', demo: false, you: user ? m.pid === (user.accountId ? 'a:' + user.accountId : String(user.id)) : false,
+    city: '', modeText: 'Joined member', skillLabels: [], availabilityText: 'Joined member', availabilityDays: null
   }));
   const demoMembers = (room.demoMembers || []).map(m => ({ ...m, demo: true, you: false }));
+  const members = [...realMembers, ...demoMembers];
+  const myPid = user ? (user.accountId ? 'a:' + user.accountId : String(user.id)) : null;
+  const mine = user ? room.members.find(m => m.pid === myPid) : null;
+  const isMember = !!mine || (user ? !!room.members.some(m => m.pid === myPid) : false);
   const out = {
-    id: room.id, inviteCode: room.inviteCode, title: room.title, goal: room.goal,
-    createdAt: room.createdAt, members: [...realMembers, ...demoMembers],
-    messages: room.messages || []
+    id: room.id, title: room.title, goal: room.goal, description: room.description || null,
+    category: room.category || null, visibility: room.visibility || 'public', joinMode: room.joinMode || 'open',
+    capacity: room.capacity || 12, capacityUsed: (room.members || []).length + (room.demoMembers || []).length,
+    onlineOnly: !!room.onlineOnly, city: room.city || null, ageScope: room.ageScope || null,
+    demo: !!room.demo, aiMode: room.aiMode || 'off', createdAt: room.createdAt,
+    members, messages: room.messages || [], myRole: mine ? (mine.role || 'member') : null, isMember
   };
+  if (isMember) out.inviteCode = room.inviteCode; // invite links are for members to share
   if (!withMessages) {
     const last = out.messages[out.messages.length - 1];
     return { ...out, messageCount: out.messages.length, lastMessageAt: last ? last.ts : null, messages: undefined };
@@ -91,31 +112,108 @@ function memberSnapshot(p) {
     availabilityText: p.availability ? p.availability.days.map(cap).join(', ') : 'Availability unknown' };
 }
 
+// Age gate: every real group is scoped teen or adult. Teens stay with teens, adults with adults,
+// and anonymous users (no verified age) never enter teen spaces. Demo groups are labeled demo.
+async function ageAllowsResolved(room, user) {
+  if (room.demo) return !user.accountId; // demo groups are guest sandboxes; signed-in people use real groups
+  if (!room.ageScope) return true;
+  if (!user.accountId) return false;
+  const account = await store.getAccountById(user.accountId);
+  if (!account || account.deleted) return false;
+  return account.ageCategory === room.ageScope;
+}
+
 async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // after "api"
   const m = req.method;
 
-  if (m === 'GET' && parts[0] === 'status') return send(res, 200, {
-    matcher: 'local-rules', ai: groq.enabled(), aiModels: groq.enabled() ? groq.MODELS : null,
-    storage: store.kind === 'postgres' ? 'shared-postgres' : (process.env.VERCEL ? 'browser' : 'data/db.json'),
-    persistent: store.kind === 'postgres' || !process.env.VERCEL, profiles: profiles.length
-  });
+  if (m === 'GET' && parts[0] === 'status') {
+    const s = llm.status();
+    return send(res, 200, {
+      matcher: 'local-rules', ai: s.ai, aiProvider: s.provider, aiModels: s.ai ? s.aiModels : null,
+      storage: store.kind === 'postgres' ? 'shared-postgres' : (process.env.VERCEL ? 'browser' : 'data/db.json'),
+      persistent: store.kind === 'postgres' || !process.env.VERCEL, profiles: profiles.length
+    });
+  }
+
+  // ---------- auth ----------
+  if (parts[0] === 'auth') {
+    const user = await getSession(req, res);
+    if (m === 'POST' && parts[1] === 'signup') {
+      if (!limited(req, 'auth', Number(process.env.KNOT_AUTH_RATE_MAX) || 10)) return send(res, 429, { error: 'Too many attempts. Wait a minute and try again.' });
+      const b = await readBody(req);
+      const email = str(b.email, 120).toLowerCase();
+      const name = str(b.name, 40);
+      const age = b.ageCategory === 'teen' ? 'teen' : (b.ageCategory === 'adult' ? 'adult' : null);
+      if (!auth.validEmail(email)) return send(res, 400, { error: 'Enter a valid email address.' });
+      if (!name) return send(res, 400, { error: 'Add a display name.' });
+      const pwErr = auth.passwordProblem(b.password);
+      if (pwErr) return send(res, 400, { error: pwErr });
+      if (!age) return send(res, 400, { error: 'Select your age group (13 to 17, or 18 and over).' });
+      if (age === 'teen' && b.confirm13 !== true) return send(res, 400, { error: 'Teen accounts need a parent or guardian permission confirmation.' });
+      try {
+        const account = await store.createAccount({ email, passwordHash: auth.hashPassword(b.password), name, ageCategory: age });
+        await store.adoptAccount(user.id, account.id);
+        await store.updateUser(user.id, { name, isGuest: false });
+        return send(res, 201, mePayload(await store.ensureUser(user._sid), account));
+      } catch (e) { return send(res, e.status || 500, { error: e.status ? e.message : 'Could not create the account right now.' }); }
+    }
+    if (m === 'POST' && parts[1] === 'signin') {
+      if (!limited(req, 'auth', Number(process.env.KNOT_AUTH_RATE_MAX) || 10)) return send(res, 429, { error: 'Too many attempts. Wait a minute and try again.' });
+      const b = await readBody(req);
+      const email = str(b.email, 120).toLowerCase();
+      const account = await store.getAccountByEmail(email);
+      // Same message for unknown email and wrong password: do not reveal which accounts exist.
+      if (!account || account.deleted || !auth.verifyPassword(String(b.password || ''), account.passwordHash)) {
+        return send(res, 401, { error: 'Email or password is not right.' });
+      }
+      await store.adoptAccount(user.id, account.id);
+      await store.updateUser(user.id, { name: account.name, isGuest: false });
+      return send(res, 200, mePayload(await store.ensureUser(user._sid), account));
+    }
+    if (m === 'POST' && parts[1] === 'signout') {
+      await store.updateUser(user.id, { isGuest: true, accountId: null });
+      return send(res, 200, { signedIn: false, id: user.id, name: user.name, isGuest: true });
+    }
+    if (m === 'POST' && parts[1] === 'delete-account') {
+      if (!user.accountId) return send(res, 400, { error: 'You are not signed in.' });
+      await store.updateAccount(user.accountId, { deleted: true });
+      await store.updateUser(user.id, { isGuest: true, accountId: null });
+      return send(res, 200, { signedIn: false, isGuest: true, deleted: true });
+    }
+    if (m === 'PATCH' && parts[1] === 'me') {
+      const b = await readBody(req);
+      const name = str(b.name, 40);
+      if (name && user.accountId) {
+        await store.updateAccount(user.accountId, { name });
+        await store.updateUser(user.id, { name });
+      } else if (name) await store.updateUser(user.id, { name });
+      return send(res, 200, mePayload(await store.ensureUser(user._sid), user.accountId ? await store.getAccountById(user.accountId) : null));
+    }
+    if (m === 'GET' && parts[1] === 'me') {
+      const fresh = await store.ensureUser(user._sid);
+      return send(res, 200, mePayload(fresh, fresh.accountId ? await store.getAccountById(fresh.accountId) : null));
+    }
+  }
 
   if (parts[0] === 'session') {
     const user = await getSession(req, res);
     if (m === 'POST') {
       const b = await readBody(req);
       if (b.legacyClientId) await store.setLegacyClientId(user.id, str(b.legacyClientId, 80));
+      const fresh = await store.ensureUser(user._sid);
+      return send(res, 200, mePayload(fresh, fresh.accountId ? await store.getAccountById(fresh.accountId) : null));
     }
-    return send(res, 200, user);
+    return send(res, 200, mePayload(user, user.accountId ? await store.getAccountById(user.accountId) : null));
   }
   if (m === 'POST' && parts[0] === 'profile') {
     const user = await getSession(req, res);
     const b = await readBody(req);
     const name = str(b.name, 40);
     if (!name) return send(res, 400, { error: 'Add a display name first.' });
-    const u = await store.updateUser(user.id, { name, isGuest: false });
-    return send(res, 200, u);
+    if (user.accountId) await store.updateAccount(user.accountId, { name });
+    const u = await store.updateUser(user.id, { name, isGuest: !user.accountId });
+    return send(res, 200, mePayload(u, user.accountId ? await store.getAccountById(user.accountId) : null));
   }
 
   if (m === 'POST' && parts[0] === 'skills' && parts[1] === 'map') {
@@ -139,11 +237,21 @@ async function api(req, res, url) {
     const b = await readBody(req);
     if (parts[1] === 'help') return send(res, 200, await helpTurn({ history: b.history, context: b.context }));
     if (parts[1] === 'finder') {
-      if (!groq.enabled()) return send(res, 503, { error: 'The AI Finder is not configured on this server. Use the Home page to describe your goal instead.' });
+      if (!llm.enabled()) return send(res, 503, { error: 'The AI Finder is not configured on this server. Use the Home page to describe your goal instead.' });
       const me = b.me || {};
       const clean = { skills: (Array.isArray(me.skills) ? me.skills : []).filter(id => SKILL_IDS.has(id)), availability: [] };
       try { const out = await finderTurn({ history: b.history, me: clean }); out.next = guide.fromFinder(out); return send(res, 200, out); }
       catch (e) { return send(res, e.status || 502, { error: e.status ? e.message : `The AI Finder is unavailable (${e.message}). Your messages are still here; try again, or use the Home page.` }); }
+    }
+    if (parts[1] === 'interpret') { // AI-assisted goal reading; falls back to local rules on any failure
+      const b = await readBody(req);
+      const goal = str(b.goal, 500);
+      if (!goal) return send(res, 400, { error: 'Add a goal first.' });
+      const me = b.me || {};
+      const clean = { skills: (Array.isArray(me.skills) ? me.skills : []).filter(id => SKILL_IDS.has(id)) };
+      const out = await interpretGoal(goal, clean);
+      out.next = guide.fromMatch({ goal, hasProfile: clean.skills.length > 0, results: out.results, empty: out.empty });
+      return send(res, 200, out);
     }
     return send(res, 404, { error: 'Not found' });
   }
@@ -169,6 +277,21 @@ async function api(req, res, url) {
     return send(res, 200, out);
   }
 
+  // ---------- public group discovery (accounts only; guests see labeled demo content elsewhere) ----------
+  if (m === 'GET' && parts[0] === 'groups') {
+    const user = await getSession(req, res);
+    if (!user.accountId) return send(res, 401, { error: 'Sign in to discover public groups.' });
+    const account = await store.getAccountById(user.accountId);
+    if (!account || account.deleted) return send(res, 401, { error: 'Sign in to discover public groups.' });
+    const q = url.searchParams;
+    const groups = await store.listPublicGroups({
+      query: q.get('q'), category: q.get('category'), mode: q.get('mode'), city: q.get('city'),
+      hasSpace: q.get('space') === '1', ageCategory: account.ageCategory, viewerPrincipal: user.accountId
+    });
+    return send(res, 200, { groups, ageScope: account.ageCategory });
+  }
+
+  // ---------- rooms / groups ----------
   if (parts[0] === 'rooms') {
     const user = await getSession(req, res);
     if (m === 'GET' && parts.length === 1) {
@@ -179,9 +302,21 @@ async function api(req, res, url) {
       const b = await readBody(req);
       const room = await store.findRoomByInvite(b.code);
       if (!room) return send(res, 404, { error: 'That invite link is not valid. Ask the group creator to copy the invite link again from inside the room.' });
-      const allowed = await store.canAccessRoom(room, user);
-      if (!allowed) await store.addRoomMember(room, user);
-      return send(res, 200, { room: publicRoom(await store.getRoomRaw(room.id), true, user.id) });
+      if (await store.isBanned(room, user)) return send(res, 403, { error: 'You were removed from this group, so you cannot rejoin it.' });
+      if (!(await ageAllowsResolved(room, user))) return send(res, 403, { error: room.ageScope === 'teen' ? 'This group is for members aged 13 to 17. Adults cannot join teen groups.' : 'This group is for members 18 and over.' });
+      // Blocks run both ways: neither side can pull the other into a group through invites or requests.
+      const ownerPid = room.ownerAccountId ? 'a:' + room.ownerAccountId : (room.ownerUserId ? String(room.ownerUserId) : null);
+      if (ownerPid && await store.isBlockedBetween(user, ownerPid)) return send(res, 403, { error: 'This invite is not available to you.' });
+      if (!(await store.canAccessRoom(room, user))) {
+        if (room.capacityUsed >= (room.capacity || 12)) return send(res, 409, { error: 'This group is full.' });
+        if (room.joinMode === 'request') {
+          const account = user.accountId ? await store.getAccountById(user.accountId) : null;
+          await store.requestJoin(room, user, user.name, account ? account.ageCategory : null);
+          return send(res, 200, { pending: true, room: publicRoom(await store.getRoomRaw(room.id), false, user) });
+        }
+        await store.addRoomMember(room, user);
+      }
+      return send(res, 200, { room: publicRoom(await store.getRoomRaw(room.id), true, user) });
     }
     if (m === 'POST' && parts.length === 1) {
       const b = await readBody(req);
@@ -191,39 +326,216 @@ async function api(req, res, url) {
       if (!goal || !title) return send(res, 400, { error: 'A group needs a name and a goal.' });
       const ids = [...new Set(Array.isArray(b.memberIds) ? b.memberIds : [])].slice(0, 5);
       const members = ids.map(id => profiles.find(p => p.id === id)).filter(Boolean).map(memberSnapshot);
-      if (!members.length) return send(res, 400, { error: 'Select at least one person for the group.' });
-      const ownerSkills = (Array.isArray(b.ownerSkills) ? b.ownerSkills : []).filter(id => SKILL_IDS.has(id));
-      const owner = { id: user.id, name: user.name, you: true, skillLabels: ownerSkills.map(id => SKILL_BY_ID[id].label), availabilityDays: null, availabilityText: 'You', demo: false };
+      const visibility = b.visibility === 'private' ? 'private' : 'public';
+      const joinMode = b.joinMode === 'request' ? 'request' : 'open';
+      const capacity = Math.min(Math.max(Number(b.capacity) || 12, 2), 50);
+      const ageScope = b.ageScope === 'teen' ? 'teen' : 'adult';
+      const account = user.accountId ? await store.getAccountById(user.accountId) : null;
+      // A person can only lead a group inside their own age scope (teens lead teen groups).
+      if (account && account.ageCategory !== ageScope) return send(res, 403, { error: ageScope === 'teen' ? 'Teen groups are created by members aged 13 to 17.' : 'Adult groups are created by members 18 and over.' });
       const made = await store.createRoom({
-        id: crypto.randomBytes(5).toString('hex'), inviteCode: crypto.randomBytes(4).toString('hex'),
-        requestId, title, goal, ownerUserId: user.id, ownerName: user.name, legacyClientId: str(b.clientId, 80),
-        demoMembers: members
+        id: crypto.randomBytes(5).toString('hex'), inviteCode: crypto.randomBytes(12).toString('base64url'),
+        requestId, title, goal, description: str(b.description, 300) || null, category: str(b.category, 40) || null,
+        visibility, joinMode, capacity, onlineOnly: !!b.onlineOnly, city: str(b.city, 60) || null,
+        ageScope, demo: !user.accountId, aiMode: 'off',
+        ownerUserId: user.accountId ? null : user.id, ownerAccountId: user.accountId || null,
+        ownerName: user.name, ownerAgeCategory: account ? account.ageCategory : null,
+        legacyClientId: str(b.clientId, 80), demoMembers: members
       });
       if (!made.room) return send(res, 500, { error: 'The group could not be saved. Please try again.' });
-      return send(res, made.duplicate ? 200 : 201, { room: publicRoom(made.room, true, user.id), duplicate: made.duplicate });
+      return send(res, made.duplicate ? 200 : 201, { room: publicRoom(made.room, true, user), duplicate: made.duplicate });
     }
     if (parts.length < 2) return send(res, 404, { error: 'Not found' });
     let room = await store.getRoomRaw(parts[1]);
     if (!room) return send(res, 404, { error: 'This group could not be found. It may live on another computer or in another browser. Open My groups to see your groups, or ask the creator for an invite link.' });
-    const allowed = await store.canAccessRoom(room, user);
-    if (!allowed) return send(res, 403, { error: 'You are not in this group yet. Open the invite link the creator shared to join it.' });
-    if (m === 'GET' && parts.length === 2) return send(res, 200, { room: publicRoom(room, true, user.id), next: guide.fromRoom({ messages: room.messages || [] }) });
+    // Join straight from discovery by group id (invite codes are not needed for public groups).
+    if (m === 'POST' && parts[2] === 'join') {
+      if (room.visibility !== 'public' || room.demo) return send(res, 403, { error: 'This group is not open for discovery.' });
+      if (await store.isBanned(room, user)) return send(res, 403, { error: 'You were removed from this group, so you cannot rejoin it.' });
+      if (!(await ageAllowsResolved(room, user))) return send(res, 403, { error: room.ageScope === 'teen' ? 'This group is for members aged 13 to 17. Adults cannot join teen groups.' : 'This group is for members 18 and over.' });
+      const ownerPid = room.ownerAccountId ? 'a:' + room.ownerAccountId : (room.ownerUserId ? String(room.ownerUserId) : null);
+      if (ownerPid && await store.isBlockedBetween(user, ownerPid)) return send(res, 403, { error: 'This group is not available to you.' });
+      if (!(await store.canAccessRoom(room, user))) {
+        if (room.capacityUsed >= (room.capacity || 12)) return send(res, 409, { error: 'This group is full.' });
+        if (room.joinMode === 'request') {
+          const account = user.accountId ? await store.getAccountById(user.accountId) : null;
+          await store.requestJoin(room, user, user.name, account ? account.ageCategory : null);
+          return send(res, 200, { pending: true });
+        }
+        await store.addRoomMember(room, user);
+      }
+      return send(res, 200, { room: publicRoom(await store.getRoomRaw(room.id), true, user) });
+    }
+    const user2 = user;
+    const myPid = user2.accountId ? 'a:' + user2.accountId : String(user2.id);
+    const isMember = (room.members || []).some(m => m.pid === myPid);
+    const myRole = ((room.members || []).find(m => m.pid === myPid) || {}).role || null;
+    const canMod = myRole === 'owner' || myRole === 'moderator';
+    if (!isMember && !(room.visibility === 'public' && !room.demo)) {
+      return send(res, 403, { error: 'You are not in this group yet. Open the invite link the creator shared to join it.' });
+    }
+    // Public groups preview to non-members (without messages or invite code).
+    if (!isMember) return send(res, 200, { room: publicRoom(await store.getRoomRaw(room.id), false, null) });
+    if (m === 'GET' && parts.length === 2) {
+      const payload = publicRoom(room, true, user2);
+      if (canMod) { payload.joinRequests = await store.listJoinRequests(room); payload.bans = await store.listBans(room); }
+      return send(res, 200, { room: payload, next: guide.fromRoom({ messages: room.messages || [] }) });
+    }
     if (m === 'GET' && parts[2] === 'messages') {
       const msgs = await store.listMessagesAfter(room, url.searchParams.get('after'));
       return send(res, 200, { messages: msgs });
     }
     if (m === 'POST' && parts[2] === 'messages') {
-      if (!limited(req)) return send(res, 429, { error: 'Slow down a little and try again in a minute.' });
+      if (!limited(req, 'msg', 30)) return send(res, 429, { error: 'Slow down a little and try again in a minute.' });
       const b = await readBody(req);
       const text = String(b.text == null ? '' : b.text).trim().slice(0, 2000);
       if (!text) return send(res, 400, { error: 'Type a message first.' });
-      // The author is always this session's user; anything the client claims about itself is ignored.
-      const msg = await store.addMessage(room, { userId: user.id, authorName: user.name, text, kind: b.kind });
+      if (text.startsWith('/askknot')) {
+        if (room.aiMode === 'off') return send(res, 403, { error: 'AI is off in this group. The owner can turn it on in group settings.' });
+        const question = text.replace(/^\/askknot\s*/, '') || 'Give this group a quick nudge: what should we do next?';
+        const out = await roomAssistant({ room, meProfile: null, question, history: (room.messages || []).slice(-6).map(x => ({ role: x.kind === 'assistant' ? 'assistant' : 'user', content: x.text })) });
+        const msg = await store.addMessage(room, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' });
+        return send(res, 201, { message: msg });
+      }
+      // Moderation BEFORE posting: held content never reaches the room; it files a report instead.
+      const mod = await checkMessage(text);
+      if (mod.action === 'hold') {
+        await store.addReport({ reporterUser: user2, roomId: room.id, targetPid: myPid, reason: mod.reason, details: 'Automatic hold. Message text: ' + text.slice(0, 500), status: 'open' });
+        return send(res, 422, { error: 'KNOT held this message for review. A group moderator will look at it. If you think this is a mistake, you can report the issue to the organizer instead.', held: true });
+      }
+      // The author is always this session's principal; anything the client claims about itself is ignored.
+      const msg = await store.addMessage(room, {
+        userId: user2.accountId ? null : user2.id, accountId: user2.accountId || null,
+        authorName: user2.name, text, clientMsgId: str(b.clientMsgId, 60) || null, kind: b.kind
+      });
+      // ai_mode 'on': after each member message, KNOT AI posts one short reply (never as a human).
+      if (room.aiMode === 'on' && !msg.duplicate) {
+        try {
+          const out = await roomAssistant({ room, meProfile: null, question: 'Respond briefly to the latest message and move the group forward.', history: (room.messages || []).slice(-6).map(x => ({ role: x.kind === 'assistant' ? 'assistant' : 'user', content: x.text })) });
+          await store.addMessage(room, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' });
+        } catch { /* AI is optional; the member message already posted */ }
+      }
       return send(res, 201, { message: msg });
     }
     if (m === 'POST' && parts[2] === 'assist') {
-      const pub = publicRoom(room, false, user.id);
+      const pub = publicRoom(room, false, user2);
       return send(res, 200, buildAssist({ goal: room.goal, members: pub.members }));
+    }
+    // ---- moderation controls (owner or moderator only) ----
+    if (canMod && m === 'POST' && parts[2] === 'kick') {
+      const b = await readBody(req);
+      const pid = str(b.pid, 80);
+      const target = room.members.find(x => x.pid === pid);
+      if (!target) return send(res, 404, { error: 'That member is not in this group.' });
+      if (target.role === 'owner') return send(res, 403, { error: 'The owner cannot be removed.' });
+      await store.removeMember(room, user2, pid);
+      await store.addModAction({ actorUser: user2, roomId: room.id, targetPid: pid, action: 'kick', reason: str(b.reason, 200) });
+      return send(res, 200, { ok: true });
+    }
+    if (canMod && m === 'POST' && parts[2] === 'ban') {
+      const b = await readBody(req);
+      const pid = str(b.pid, 80);
+      const target = room.members.find(x => x.pid === pid);
+      if (!target) return send(res, 404, { error: 'That member is not in this group.' });
+      if (target.role === 'owner') return send(res, 403, { error: 'The owner cannot be banned.' });
+      if (myRole !== 'owner' && target.role === 'moderator') return send(res, 403, { error: 'A moderator cannot ban another moderator. Ask the owner.' });
+      await store.banMember(room, pid, str(b.reason, 200));
+      await store.addModAction({ actorUser: user2, roomId: room.id, targetPid: pid, action: 'ban', reason: str(b.reason, 200) });
+      return send(res, 200, { ok: true });
+    }
+    if (canMod && m === 'POST' && parts[2] === 'unban') {
+      const b = await readBody(req);
+      await store.unbanMember(room, str(b.pid, 80));
+      await store.addModAction({ actorUser: user2, roomId: room.id, targetPid: str(b.pid, 80), action: 'unban' });
+      return send(res, 200, { ok: true });
+    }
+    if (myRole === 'owner' && m === 'POST' && parts[2] === 'promote') {
+      const b = await readBody(req);
+      const role = b.role === 'moderator' ? 'moderator' : 'member';
+      await store.setMemberRole(room, str(b.pid, 80), role);
+      await store.addModAction({ actorUser: user2, roomId: room.id, targetPid: str(b.pid, 80), action: 'role:' + role });
+      return send(res, 200, { ok: true });
+    }
+    if (myRole === 'owner' && m === 'POST' && parts[2] === 'transfer') {
+      const b = await readBody(req);
+      const pid = str(b.pid, 80);
+      if (!room.members.some(x => x.pid === pid)) return send(res, 404, { error: 'Pick a current member.' });
+      await store.transferOwnership(room.id, pid);
+      await store.setMemberRole(room, myPid, 'member');
+      await store.addModAction({ actorUser: user2, roomId: room.id, targetPid: pid, action: 'ownership-transfer' });
+      return send(res, 200, { ok: true });
+    }
+    if (m === 'POST' && parts[2] === 'leave') {
+      if (myRole === 'owner') return send(res, 409, { error: 'The owner cannot leave. Transfer ownership first (member menu → Make owner), or delete the group from your side later.' });
+      await store.removeMember(room, user2, myPid);
+      return send(res, 200, { ok: true });
+    }
+    if (canMod && m === 'PATCH' && parts.length === 2) {
+      const b = await readBody(req);
+      const fields = {};
+      if (b.title !== undefined) { const t = str(b.title, 80); if (t) fields.title = t; }
+      if (b.description !== undefined) fields.description = str(b.description, 300);
+      if (b.category !== undefined) fields.category = str(b.category, 40);
+      if (b.visibility !== undefined && (b.visibility === 'public' || b.visibility === 'private')) fields.visibility = b.visibility;
+      if (b.joinMode !== undefined && (b.joinMode === 'open' || b.joinMode === 'request')) fields.joinMode = b.joinMode;
+      if (b.capacity !== undefined) fields.capacity = Math.min(Math.max(Number(b.capacity) || 12, 2), 50);
+      if (b.aiMode !== undefined && ['off', 'on-demand', 'on'].includes(b.aiMode)) fields.aiMode = b.aiMode;
+      await store.setRoomFields(room.id, fields);
+      return send(res, 200, { room: publicRoom(await store.getRoomRaw(room.id), true, user2) });
+    }
+    // ---- join requests (approval-mode groups) ----
+    if (canMod && m === 'GET' && parts[2] === 'requests') return send(res, 200, { requests: await store.listJoinRequests(room) });
+    if (canMod && m === 'POST' && parts[2] === 'requests') {
+      const b = await readBody(req);
+      const pid = str(b.pid, 80);
+      const reqRow = (await store.listJoinRequests(room)).find(r => r.pid === pid);
+      if (!reqRow) return send(res, 404, { error: 'That request is gone; it may have been handled already.' });
+      if (room.capacityUsed >= (room.capacity || 12)) return send(res, 409, { error: 'This group is full.' });
+      const approve = b.approve === true;
+      // Teen scoping is enforced again at approval time, from the requester's stored age.
+      if (approve && room.ageScope === 'teen' && reqRow.ageCategory !== 'teen') return send(res, 403, { error: 'This group is for members aged 13 to 17.' });
+      if (approve && room.ageScope === 'adult' && reqRow.ageCategory && reqRow.ageCategory !== 'adult') return send(res, 403, { error: 'This group is for members 18 and over.' });
+      await store.decideJoinRequest(room, pid, approve);
+      await store.addModAction({ actorUser: user2, roomId: room.id, targetPid: pid, action: approve ? 'approve-join' : 'decline-join' });
+      return send(res, 200, { ok: true });
+    }
+  }
+
+  // ---------- reports and blocks ----------
+  if (m === 'POST' && parts[0] === 'reports') {
+    if (!limited(req, 'reports', 10)) return send(res, 429, { error: 'Too many reports in a minute. Try again shortly.' });
+    const user = await getSession(req, res);
+    const b = await readBody(req);
+    const reason = str(b.reason, 60);
+    if (!reason) return send(res, 400, { error: 'Pick a reason for the report.' });
+    const out = await store.addReport({
+      reporterUser: user, roomId: str(b.roomId, 40) || null, messageId: str(b.messageId, 60) || null,
+      messageText: str(b.messageText, 500) || null, targetPid: str(b.targetPid, 80) || null,
+      reason, details: str(b.details, 500) || null, status: 'open'
+    });
+    return send(res, 201, { ok: true, id: out.id, note: 'Thanks. A report was filed for review. Nothing happens automatically to the person you reported.' });
+  }
+  if (m === 'POST' && parts[0] === 'blocks') {
+    const user = await getSession(req, res);
+    const b = await readBody(req);
+    const pid = str(b.pid, 80);
+    if (!pid) return send(res, 400, { error: 'Missing member to block.' });
+    await store.addBlock(user, pid);
+    return send(res, 200, { ok: true, note: 'Blocked. KNOT keeps this person out of your matches and join requests, both ways.' });
+  }
+  // Admin console: reports and moderation log, guarded by a shared admin key in the environment.
+  if (parts[0] === 'admin' && process.env.ADMIN_KEY && url.searchParams.get('key') === process.env.ADMIN_KEY) {
+    if (m === 'GET' && parts[1] === 'reports') {
+      const reports = await store.listReports(50);
+      const actions = await store.listModActions(50);
+      let usage = null;
+      try { usage = await store.aiUsageTotals(); } catch {}
+      return send(res, 200, { reports, actions, usage });
+    }
+    if (m === 'POST' && parts[1] === 'reports') {
+      const b = await readBody(req);
+      await store.resolveReport(str(b.id, 60), b.status === 'resolved' ? 'resolved' : 'dismissed');
+      return send(res, 200, { ok: true });
     }
   }
   return send(res, 404, { error: 'Not found' });
@@ -248,7 +560,7 @@ const handler = async (req, res) => {
     else if (req.method === 'GET' || req.method === 'HEAD') serveStatic(req, res, url);
     else { res.writeHead(405); res.end(); }
   } catch (e) {
-    if (!res.headersSent) send(res, 400, { error: e.message || 'Something went wrong.' });
+    if (!res.headersSent) send(res, e.status || 400, { error: e.status ? e.message : (e.message || 'Something went wrong.') });
   }
 };
 module.exports = { handler };
@@ -260,6 +572,7 @@ server.on('error', e => {
   process.exit(1);
 });
 server.listen(PORT, () => {
+  const s = llm.status();
   console.log(`KNOT is running at http://localhost:${PORT}`);
-  console.log(`Matching: local rules. AI chat + help: ${groq.enabled() ? 'on (Groq, key read from .env, server-side only)' : 'off (no GROQ_API_KEY; help bot uses basic local rules)'}. Storage: ${store.kind === 'postgres' ? 'shared Postgres (DATABASE_URL)' : 'data/db.json (this machine only; set DATABASE_URL to share across computers)'}`);
+  console.log(`AI: ${s.ai ? s.provider + ' (' + JSON.stringify(s.aiModels) + ')' : 'off (no OPENAI_API_KEY or GROQ_API_KEY; local features still work)'}. Storage: ${store.kind === 'postgres' ? 'shared Postgres (DATABASE_URL)' : 'data/db.json (this machine only; set DATABASE_URL to share across computers)'}`);
 });

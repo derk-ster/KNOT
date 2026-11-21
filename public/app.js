@@ -43,6 +43,7 @@ const initials = n => n.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpper
 const state = {
   clientId: store.get('knot.clientId', null) || uid(),
   sessionId: null, sessionName: null,
+  acct: null,             // signed-in account: {accountId, name, email, ageCategory} or null (guest)
   me: store.get('knot.me', null),
   goal: store.get('knot.goal', ''),
   relaxed: [],
@@ -95,7 +96,7 @@ async function localRoomApi(path, opts) {
 async function apiRaw(path, opts = {}) {
   const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
   let d = null; try { d = await r.json(); } catch { /* non-json */ }
-  if (!r.ok) throw new Error((d && d.error) || `Request failed (${r.status})`);
+  if (!r.ok) { const e = new Error((d && d.error) || `Request failed (${r.status})`); if (d && d.held) e.held = true; throw e; }
   return d;
 }
 const say = t => { const l = $('#live'); l.textContent = ''; setTimeout(() => { l.textContent = t; }, 30); };
@@ -104,10 +105,13 @@ const skillLabel = id => (state.skills.find(s => s.id === id) || { label: id }).
 
 // ---------- header ----------
 function paintHeader() {
-  $('#profileAvatar').textContent = state.me ? initials(state.me.name) : '?';
-  $('#profileLabel').textContent = state.me ? state.me.name.split(' ')[0] : 'Profile';
+  const who = state.acct ? state.acct.name : (state.me ? state.me.name : null);
+  $('#profileAvatar').textContent = who ? initials(who) : '?';
+  $('#profileLabel').textContent = who ? who.split(' ')[0] : 'Profile';
+  const ab = $('#authBtn'); if (ab) ab.textContent = state.acct ? 'Sign out' : 'Sign in';
   const h = location.hash || '#/';
   $('#navHome').setAttribute('aria-current', h === '#/' || h === '' ? 'page' : 'false');
+  $('#navDiscover').setAttribute('aria-current', h.startsWith('#/discover') ? 'page' : 'false');
   $('#navFinder').setAttribute('aria-current', h.startsWith('#/finder') ? 'page' : 'false');
   $('#navGroups').setAttribute('aria-current', h.startsWith('#/groups') || h.startsWith('#/room') ? 'page' : 'false');
 }
@@ -170,6 +174,7 @@ function route(initial) {
   $('#createDialog').open && $('#createDialog').close();
   if (h.startsWith('#/room/')) renderRoom(h.slice(7));
   else if (h.startsWith('#/join/')) renderJoin(h.slice(7));
+  else if (h === '#/discover') renderDiscover();
   else if (h === '#/groups') renderGroups();
   else if (h === '#/finder') renderFinder();
   else renderHome(initial);
@@ -230,7 +235,8 @@ function renderHome(initial) {
     <section id="resultsSection" class="results-section" aria-labelledby="resHead" hidden>
       <div class="res-head">
         <h2 id="resHead">People who fit</h2>
-        <span class="badge neutral" title="No AI model is connected. Matches come from KNOT's local rules.">Local matcher</span>
+        <span class="badge neutral" id="matcherBadge" title="Matches come from KNOT's local rules over stored profiles.">Local matcher</span>
+        <button type="button" class="btn quiet sm" id="aiReadBtn" hidden title="Let the AI model re-read your goal first, then match locally as always">Try AI reading</button>
       </div>
       <div id="interp" class="interp" aria-label="What KNOT understood"></div>
       <p id="notice" class="notice" hidden></p>
@@ -239,6 +245,34 @@ function renderHome(initial) {
       <ul id="results" class="results"></ul>
       <div id="empty" class="empty" hidden></div>
     </section>
+
+    <section id="homeGroups" class="home-groups reveal" aria-labelledby="hgh">
+      <h2 id="hgh">Groups open right now</h2>
+      <p class="lead">Public groups of real members. Pick one and join, or start your own.</p>
+      <div id="homeGroupsList" aria-live="polite"><p class="hint">Loading…</p></div>
+    </section>
+
+    <section id="homeAi" class="home-ai reveal" aria-labelledby="haih">
+      <h2 id="haih">Where AI helps, and where it does not</h2>
+      <ul class="ai-list">
+        <li><strong>Reading your goal.</strong> KNOT turns your one sentence into the skills, city and days to match on. The matches themselves come from KNOT's local rules over real profile data, so every match shows exactly why.</li>
+        <li><strong>The AI Finder.</strong> Chat a sentence or two and KNOT builds the goal for you.</li>
+        <li><strong>KNOT AI in rooms.</strong> A group owner can switch on a small assistant that answers questions from the group's real member profiles. It never speaks as a human and never invents people.</li>
+        <li><strong>Never without you.</strong> If no AI is configured, everything above falls back to the local matcher. Matches, groups and chat keep working.</li>
+      </ul>
+    </section>
+
+    <section id="homeCta" class="home-cta reveal" aria-labelledby="hch">
+      <img src="assets/art/knot-mark.svg" width="56" height="42" alt="">
+      <h2 id="hch">One sentence is enough</h2>
+      <p>Say what you want to do. KNOT finds the people, explains why they fit, and starts the chat.</p>
+      <button type="button" class="btn primary" id="ctaFind">Find my people</button>
+    </section>
+    <footer class="site-foot reveal">
+      <p><strong>KNOT</strong> · find your people</p>
+      <p class="small">Made for ITKAN. Matching runs on local rules with AI assistance where switched on. Demo profiles are fictional and always labeled. Group owners moderate their groups; report anything that worries you. KNOT cannot promise anyone is safe: meet in public, bring a friend, tell someone where you are.</p>
+    </footer>
+
     <div id="createBar" class="create-bar" hidden>
       ${markImg(34)}
       <p id="createText"></p>
@@ -264,6 +298,14 @@ function renderHome(initial) {
   $('#interp').addEventListener('click', onRelaxClick);
   $('#empty').addEventListener('click', onRelaxClick);
   $('#createBtn').addEventListener('click', openCreate);
+  $('#ctaFind').addEventListener('click', () => { $('#goal').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('#goal').focus({ preventScroll: true }); });
+
+  // entrance animation: hero first, then the rest, within 300 to 700ms, honoring reduced motion
+  if (!reduceMotion()) requestAnimationFrame(() => { document.body.classList.add('booted'); paintHomeGroups(); });
+  else paintHomeGroups();
+  apiRaw('/api/status').then(s => {
+    if (s.ai) { const b = $('#aiReadBtn'); if (b) { b.hidden = false; b.addEventListener('click', () => { state.aiRead = true; findPeople(true); }); } }
+  }).catch(() => {});
 
   if (state.resp) { renderResults(state.resp, true); }
   else if (store.get('knot.searched', false) && state.goal.trim() && state.me) findPeople();
@@ -273,6 +315,23 @@ function renderHome(initial) {
 
 function showErr(sel, text) { const e = $(sel); if (!e) return; e.innerHTML = icon.alert + `<span>${esc(text)}</span>`; e.hidden = false; }
 function hideErr(sel) { const e = $(sel); if (e) { e.hidden = true; e.innerHTML = ''; } const g = $('#goal'); if (g && sel === '#goalErr') g.removeAttribute('aria-invalid'); }
+
+// Public groups preview on Home. Real accounts see real groups in their age scope;
+// guests see the sign-in call to action instead (demo content is never passed off as live groups).
+async function paintHomeGroups() {
+  const box = $('#homeGroupsList'); if (!box) return;
+  if (!state.acct) {
+    box.innerHTML = `<div class="empty center small-pad"><div><p>Discover is for members.</p><p class="small">Create a free account (email and password, 13+ with a guardian's OK) to see and join public groups. Everything else works without one.</p><button type="button" class="btn primary sm" id="hgSignin">Create account</button></div></div>`;
+    const b = $('#hgSignin'); if (b) b.addEventListener('click', () => openAuth('up'));
+    return;
+  }
+  try {
+    const { groups } = await apiRaw('/api/groups');
+    if (!groups.length) { box.innerHTML = `<p class="hint">No public groups yet. Create one from a match and it shows up here.</p>`; return; }
+    box.innerHTML = `<ul class="group-list">${groups.slice(0, 3).map(g => `<li><div class="group-row">${markImg(52)}<span class="g-main"><strong>${esc(g.title)}</strong><span class="g-goal">“${esc(g.goal)}”</span><span class="meta">${g.memberCount}/${g.capacity} members · ${g.onlineOnly ? 'online' : 'in person'}</span></span><a class="btn primary sm" href="#/room/${esc(g.id)}">Open</a></div></li>`).join('')}</ul>
+      <p class="small"><a href="#/discover">See all groups in Discover</a></p>`;
+  } catch { box.innerHTML = `<p class="hint">Could not load groups right now.</p>`; }
+}
 
 function setBusy(on) {
   const b = $('#findBtn'); if (!b) return;
@@ -293,8 +352,16 @@ async function findPeople(force) {
   if (!force && state.resp && state.respKey === key) { renderResults(state.resp); return; }
   hideErr('#matchErr'); setBusy(true);
   try {
-    const resp = await api('/api/match', { method: 'POST', body: JSON.stringify({ goal, me: meForApi(), relaxed: state.relaxed }) });
-    state.resp = resp; state.respKey = key; store.set('knot.searched', true);
+    let resp;
+    if (state.aiRead) {
+      // AI-assisted: the model re-reads the goal, then the same local matcher runs over validated fields.
+      try {
+        resp = await api('/api/ai/interpret', { method: 'POST', body: JSON.stringify({ goal, me: meForApi() }) });
+        resp.relaxed = state.relaxed;
+      } catch (aiErr) { state.aiRead = false; const bb = $('#aiReadBtn'); if (bb) { bb.hidden = true; bb.textContent = 'AI reading unavailable'; } }
+    }
+    if (!resp) resp = await api('/api/match', { method: 'POST', body: JSON.stringify({ goal, me: meForApi(), relaxed: state.relaxed }) });
+    state.resp = resp; state.respKey = null; store.set('knot.searched', true);
     renderResults(resp);
   } catch (e) {
     $('#resultsSection').hidden = false; const sg2 = $('#startGuide'); if (sg2) sg2.hidden = true;
@@ -322,6 +389,12 @@ function renderResults(resp, restoring) {
   const y = scrollY, active = document.activeElement;
   $('#resultsSection').hidden = false; const sg = $('#startGuide'); if (sg) sg.hidden = true;
   hideErr('#matchErr');
+  const badge = $('#matcherBadge'); if (badge) {
+    badge.textContent = resp.matcher === 'ai-assisted local rules' ? 'AI reading + local rules' : 'Local matcher';
+    badge.title = resp.matcher === 'ai-assisted local rules'
+      ? 'An AI model re-read your goal; matches still come from KNOT\'s local rules over stored profiles.'
+      : 'Matches come from KNOT\'s local rules over stored profiles.';
+  }
   const it = resp.interpreted;
   const chips = [];
   chips.push(`<button type="button" class="tag editable" data-edit="offer" aria-label="You offer: ${esc(it.offers.map(o => o.label).join(', ') || 'nothing yet')}. Change what you offer">You offer: ${esc(it.offers.map(o => o.label).join(', ') || 'nothing yet')}${icon.pencil}<span class="tag-hint">Change</span></button>`);
@@ -336,7 +409,9 @@ function renderResults(resp, restoring) {
   reconcile(resp.results, restoring);
 
   const ph = $('#pickHint'); if (ph) ph.hidden = !resp.results.length;
-  const nt = $('#notice'); if (nt) { nt.hidden = !resp.notice; nt.textContent = resp.notice || ''; }
+  const aiFields = (it.aiParsedFields || []).length;
+  const aiNote = aiFields ? `KNOT's AI reading picked the ${it.aiParsedFields.join(', ')} from your goal. Every match still comes from stored profiles, with the reason shown on each card.` : null;
+  const nt = $('#notice'); if (nt) { nt.hidden = !(resp.notice || aiNote); nt.textContent = resp.notice || aiNote || ''; }
   const empty = $('#empty');
   if (resp.empty) {
     empty.hidden = false;
@@ -429,7 +504,78 @@ function updateCreateBar() {
 }
 
 
-// ---------- PROFILE ----------
+// ---------- ACCOUNTS (sign in / create account) ----------
+// Accounts are how identity follows a person across devices. Guests keep the anonymous session
+// experience. Teen accounts (13 to 17) and adult accounts never share groups with each other.
+function openAuth(mode = 'in') {
+  const d = $('#authDialog');
+  const isUp = mode === 'up';
+  d.innerHTML = `<form method="dialog" id="authForm" novalidate class="dlg">
+    <div class="dlg-head">
+      <img src="assets/art/artists_palette.png" width="96" height="73" alt="" class="dlg-art">
+      <div><h2 id="authTitle">${isUp ? 'Create your KNOT account' : 'Welcome back'}</h2>
+      <p class="hint">${isUp ? 'An email and password only. Your groups follow you to any device.' : 'Sign in to reach your groups on this device.'}</p></div>
+    </div>
+    <div class="field"><label for="aEmail">Email</label>
+      <input id="aEmail" type="email" maxlength="120" autocomplete="email" required aria-describedby="aAuthErr">
+    </div>
+    <div class="field"><label for="aPass">Password</label>
+      <input id="aPass" type="password" maxlength="200" autocomplete="${isUp ? 'new-password' : 'current-password'}" aria-describedby="aPassHint aAuthErr">
+      ${isUp ? '<p class="hint" id="aPassHint">At least 8 characters, with letters and numbers.</p>' : ''}
+    </div>
+    ${isUp ? `
+    <div class="field"><label for="aName">Display name</label>
+      <input id="aName" type="text" maxlength="40" autocomplete="nickname" aria-describedby="aAuthErr">
+    </div>
+    <fieldset class="field"><legend>Age group <span class="req">(required)</span></legend>
+      <div class="chips">
+        <label class="toggle"><input type="radio" name="aAge" value="teen"><span>13 to 17</span></label>
+        <label class="toggle"><input type="radio" name="aAge" value="adult" checked><span>18 and over</span></label>
+      </div>
+      <p class="hint">Teens and adults use separate groups. Adults cannot join teen groups and never message them.</p>
+    </fieldset>
+    <div class="field"><label class="toggle agree"><input type="checkbox" id="aGuard"><span>I am 13 or older. If I pick 13 to 17, I have a parent or guardian permission to use KNOT.</span></label></div>` : ''}
+    <p class="msg err" id="aAuthErr" role="alert" hidden></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn ghost" id="aSwap">${isUp ? 'I have an account' : 'New here? Create an account'}</button>
+      <button type="submit" class="btn primary" id="aSubmit">${isUp ? 'Create account' : 'Sign in'}</button>
+    </div></form>`;
+  d.showModal();
+  $('#aEmail').focus();
+  $('#aSwap').addEventListener('click', () => { d.close(); openAuth(isUp ? 'in' : 'up'); });
+  $('#authForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const err = $('#aAuthErr'), submit = $('#aSubmit');
+    const email = $('#aEmail').value.trim(), pass = $('#aPass').value;
+    const age = isUp ? (($('input[name=aAge]:checked') || {}).value || 'adult') : null;
+    err.hidden = true;
+    if (!email || !pass) { err.innerHTML = icon.alert + '<span>Enter your email and password.</span>'; err.hidden = false; return; }
+    if (isUp) {
+      if (!$('#aName').value.trim()) { err.innerHTML = icon.alert + '<span>Add a display name so groups know who you are.</span>'; err.hidden = false; return; }
+      if (age === 'teen' && !$('#aGuard').checked) { err.innerHTML = icon.alert + '<span>Teen accounts need the permission checkbox ticked.</span>'; err.hidden = false; return; }
+    }
+    submit.disabled = true; submit.textContent = isUp ? 'Creating…' : 'Signing in…';
+    try {
+      const body = isUp
+        ? { email, password: pass, name: $('#aName').value.trim(), ageCategory: age, confirm13: age === 'teen' ? $('#aGuard').checked : undefined }
+        : { email, password: pass };
+      const me = await apiRaw('/api/auth/' + (isUp ? 'signup' : 'signin'), { method: 'POST', body: JSON.stringify(body) });
+      state.acct = me.signedIn ? me : null;
+      if (state.acct && state.me && state.me.name !== me.name) state.me.name = me.name;
+      d.close(); paintHeader(); route(false);
+      say(isUp ? 'Account created. Your groups now follow you across devices.' : 'Signed in.');
+      if (state.acct) openProfile();
+    } catch (ex) {
+      submit.disabled = false; submit.textContent = isUp ? 'Try again' : 'Sign in';
+      err.innerHTML = icon.alert + `<span>${esc(ex.message)}</span>`; err.hidden = false;
+    }
+  });
+}
+async function signOut() {
+  try { await apiRaw('/api/auth/signout', { method: 'POST', body: '{}' }); } catch { /* offline */ }
+  state.acct = null; paintHeader();
+  say('Signed out. Your groups are still here under your account.');
+}
 function openProfile(opts = {}) {
   const d = $('#profileDialog'); const me = state.me || { name: '', skills: [], interests: '', city: '', availability: [], mode: 'both' };
   d.innerHTML = `<form method="dialog" id="profileForm" novalidate class="dlg">
@@ -500,16 +646,31 @@ let createRequestId = null;
 function openCreate() {
   const sel = selectedResults(); if (!sel.length) return;
   createRequestId = uid();
+  const acct = state.acct;
   const d = $('#createDialog');
+  const demoNote = !acct ? `<p class="msg info small">You are not signed in, so this is a demo sandbox group: fictional profiles, kept off Discover, and not shared across devices. Create an account to make a real group that others can find and join.</p>` : '';
+  const memberNote = sel.length ? `<p class="msg info small">The people you picked are fictional demo profiles. They won’t reply, but you can chat and plan here.</p>` : '';
   d.innerHTML = `<form id="createForm" method="dialog" novalidate class="dlg">
-    <div class="dlg-head">${markImg(64)}<div><h2 id="createTitle">Create your group</h2><p class="hint">Check who’s in and name the room.</p></div></div>
+    <div class="dlg-head">${markImg(64)}<div><h2 id="createTitle">Create your group</h2><p class="hint">Name it, decide who can find it, then start the chat.</p></div></div>
     <div class="goal-quote"><span class="gq-label">Your goal</span><p>“${esc(state.goal.trim())}”</p></div>
     <div class="field"><label for="gName">Group name</label><input id="gName" type="text" maxlength="80" value="${esc(titleFromGoal(state.goal))}" aria-describedby="gNameErr"><p class="msg err" id="gNameErr" role="alert" hidden></p></div>
+    <div class="field"><label for="gDesc">Short description <span class="opt">(optional)</span></label><input id="gDesc" type="text" maxlength="300" placeholder="One line people will see in Discover"></div>
     <fieldset class="field"><legend>Who’s included</legend>
       <ul class="member-list"><li><span class="avatar sm" aria-hidden="true">${esc(initials(state.me.name))}</span><span><strong>${esc(state.me.name)}</strong> (you)</span></li>
       ${sel.map(s => `<li><span class="avatar sm" aria-hidden="true">${esc(initials(s.name))}</span><span><strong>${esc(s.name)}</strong> <span class="meta">${esc(s.city)}</span></span></li>`).join('')}</ul>
     </fieldset>
-    <p class="msg info small">These are fictional demo profiles. They won’t reply, but you can chat and plan here.</p>
+    ${memberNote}${demoNote}
+    ${acct ? `<details class="optional"><summary>Who can find this group</summary>
+      <fieldset class="field"><legend>Visibility</legend><div class="chips">
+        <label class="toggle"><input type="radio" name="gVis" value="public" checked><span>Public (in Discover)</span></label>
+        <label class="toggle"><input type="radio" name="gVis" value="private"><span>Private (invite link only)</span></label></div></fieldset>
+      <fieldset class="field"><legend>Joining</legend><div class="chips">
+        <label class="toggle"><input type="radio" name="gJoin" value="open" checked><span>Anyone can join</span></label>
+        <label class="toggle"><input type="radio" name="gJoin" value="request"><span>You approve each request</span></label></div></fieldset>
+      <div class="field"><label for="gCap">Member cap</label><input id="gCap" type="number" min="2" max="50" value="12"></div>
+      <div class="field"><label class="toggle"><input type="checkbox" id="gOnline"><span>This group meets online only</span></label></div>
+      <p class="hint">Age groups never mix: this group is for ${esc(acct.ageCategory === 'teen' ? 'members 13 to 17' : 'members 18 and over')} because that is your account's age group.</p>
+    </details>` : ''}
     <p class="msg err" id="gErr" role="alert" hidden></p>
     <div class="dlg-actions"><button type="button" class="btn ghost" id="gCancel">Cancel</button><button type="submit" class="btn primary" id="gSubmit">Create group</button></div>
   </form>`;
@@ -522,7 +683,15 @@ function openCreate() {
     if (!title) { const er = $('#gNameErr'); er.innerHTML = icon.alert + '<span>Give the group a name so you can find it later.</span>'; er.hidden = false; $('#gName').focus(); return; }
     busy = true; const btn = $('#gSubmit'); btn.disabled = true; btn.textContent = 'Creating…'; btn.setAttribute('aria-busy', 'true');
     try {
-      const { room } = await api('/api/rooms', { method: 'POST', body: JSON.stringify({ requestId: createRequestId, clientId: state.clientId, ownerName: state.me.name, ownerSkills: state.me.skills, title, goal: state.goal.trim(), memberIds: sel.map(s => s.id) }) });
+      const body = { requestId: createRequestId, clientId: state.clientId, ownerName: state.me.name, ownerSkills: state.me.skills, title, goal: state.goal.trim(), memberIds: sel.map(s => s.id), description: $('#gDesc') ? $('#gDesc').value.trim() : '' };
+      if (acct) {
+        body.visibility = ($('input[name=gVis]:checked') || { value: 'public' }).value;
+        body.joinMode = ($('input[name=gJoin]:checked') || { value: 'open' }).value;
+        body.capacity = Number($('#gCap').value) || 12;
+        body.onlineOnly = $('#gOnline').checked;
+        body.ageScope = acct.ageCategory;
+      }
+      const { room } = await api('/api/rooms', { method: 'POST', body: JSON.stringify(body) });
       d.close(); state.selected.clear();
       await playKnot(room);
       location.hash = '#/room/' + room.id;
@@ -555,7 +724,52 @@ function playKnot(room) {
   });
 }
 
-// ---------- GROUPS ----------
+// ---------- DISCOVER ----------
+// Public groups of real members only. Demo and private groups never appear here, and every viewer
+// is only shown groups inside their own age scope (the server enforces this; the client just paints).
+async function renderDiscover() {
+  const main = $('#main');
+  main.innerHTML = `<section class="page discover" aria-labelledby="dh">
+    <h1 id="dh" tabindex="-1" class="page-title">Discover groups</h1>
+    <p class="lead">Public groups open to people like you. Demo profiles and private groups are never listed here.</p>
+    <div id="discBody" aria-live="polite"><p class="hint">Loading…</p></div></section>`;
+  $('#dh').focus({ preventScroll: true });
+  const body = $('#discBody'); if (!body) return;
+  let acct = state.acct;
+  if (!acct) {
+    body.innerHTML = `<div class="empty center"><img src="assets/art/puzzle_piece.png" width="150" height="152" alt="" class="empty-art"><div><h2>Sign in to discover groups</h2><p>Public discovery is for members with accounts, so groups stay inside their age group and blocked people stay apart.</p><button type="button" class="btn primary" id="discSignin">Sign in</button></div></div>`;
+    $('#discSignin').addEventListener('click', () => openAuth('in'));
+    return;
+  }
+  let groups = [], q = '', mode = '';
+  const paint = () => {
+    const list = groups.filter(g =>
+      (!q || [g.title, g.goal, g.description, g.category].filter(Boolean).join(' ').toLowerCase().includes(q.toLowerCase())) &&
+      (!mode || (mode === 'online' ? g.onlineOnly : !g.onlineOnly)));
+    if (!list.length) {
+      body.innerHTML = `<div class="empty center"><img src="assets/art/puzzle_piece.png" width="150" height="152" alt="" class="empty-art"><div><h2>Nothing here yet</h2><p>No public groups match. Groups you create can show up here for others.</p><a class="btn primary" href="#/">Start with a goal</a></div></div>`;
+      return;
+    }
+    body.innerHTML = `<div class="disc-filters">
+        <input id="discQ" type="search" maxlength="60" placeholder="Search groups" aria-label="Search groups" value="${esc(q)}">
+        <div class="chips">${[['', 'All'], ['online', 'Online'], ['in-person', 'In person']].map(([v, l]) => `<label class="toggle"><input type="radio" name="discMode" value="${v}" ${mode === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div></div>
+      <ul class="group-list">${list.map(g => `<li><div class="group-row disc-row">${markImg(52)}<span class="g-main"><strong>${esc(g.title)}</strong><span class="g-goal">“${esc(g.goal)}”</span>
+        <span class="meta">${g.memberCount}/${g.capacity} members · ${g.onlineOnly ? 'online' : 'in person'}${g.city ? ' · ' + esc(g.city) : ''}${g.joinMode === 'request' ? ' · asks to join' : ''}</span></span>
+        <button type="button" class="btn primary sm" data-join="${esc(g.id)}" data-mode="${g.joinMode}">${g.joinMode === 'request' ? 'Ask to join' : 'Join'}</button></div></li>`).join('')}</ul>`;
+    $('#discQ').addEventListener('input', e => { q = e.target.value; const keep = document.activeElement; paint(); const nq = $('#discQ'); if (nq && keep === e.target) { nq.focus(); nq.setSelectionRange(nq.value.length, nq.value.length); } });
+    $$('input[name=discMode]', body).forEach(r => r.addEventListener('change', e => { mode = e.target.value; paint(); }));
+    $$('[data-join]', body).forEach(b => b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        const r = await apiRaw(`/api/rooms/${b.dataset.join}/join`, { method: 'POST', body: '{}' });
+        if (r.pending) { b.textContent = 'Request sent'; b.disabled = true; say('Join request sent. The group owner will approve it.'); return; }
+        location.hash = '#/room/' + r.room.id;
+      } catch (ex) { say(ex.message); b.disabled = false; b.textContent = b.dataset.mode === 'request' ? 'Ask to join' : 'Join'; }
+    }));
+  };
+  paint();
+  try { const r = await apiRaw('/api/groups'); groups = r.groups; paint(); } catch (ex) { body.innerHTML = `<p class="msg err" role="alert">${icon.alert}<span>${esc(ex.message)}</span></p>`; }
+}
 
 // ---------- AI FINDER ----------
 state.finder = { items: [], busy: false };
@@ -649,7 +863,7 @@ async function renderGroups() {
     list.innerHTML = `<div class="empty center"><img src="assets/art/puzzle_piece.png" width="150" height="152" alt="" class="empty-art"><div><h2>No groups yet</h2><p>Describe what you want to do, pick the people who fit, and your first group will show up here.</p><a class="btn primary" href="#/">Find my people</a></div></div>`;
     queueNext(); return;
   }
-  list.innerHTML = `<ul class="group-list">${rooms.map(r => `<li><a class="group-row" href="#/room/${r.id}">${markImg(52)}<span class="g-main"><strong>${esc(r.title)}</strong><span class="g-goal">“${esc(r.goal)}”</span><span class="meta">${r.members.length} ${r.members.length === 1 ? 'person' : 'people'} · ${r.messageCount} ${r.messageCount === 1 ? 'message' : 'messages'}</span></span>${icon.arrow}</a></li>`).join('')}</ul>`;
+  list.innerHTML = `<ul class="group-list">${rooms.map(r => `<li><a class="group-row" href="#/room/${r.id}">${markImg(52)}<span class="g-main"><strong>${esc(r.title)}</strong><span class="g-goal">“${esc(r.goal)}”</span><span class="meta">${r.memberCount} ${r.memberCount === 1 ? 'person' : 'people'} · ${r.messageCount} ${r.messageCount === 1 ? 'message' : 'messages'}${r.demo ? ' · demo' : ''}</span></span>${icon.arrow}</a></li>`).join('')}</ul>`;
 }
 
 // ---------- ROOM ----------
@@ -661,9 +875,15 @@ async function renderJoin(code) {
   const main = $('#main');
   main.innerHTML = '<section class="page"><p class="hint">Joining group…</p></section>';
   try {
-    const { room } = await api('/api/rooms/join', { method: 'POST', body: JSON.stringify({ code }) });
-    say('Joined ' + room.title);
-    location.hash = '#/room/' + room.id;
+    const r = await api('/api/rooms/join', { method: 'POST', body: JSON.stringify({ code }) });
+    if (r.pending) {
+      main.innerHTML = `<section class="page"><div class="empty center"><img src="assets/art/heart_chat.png" width="150" height="130" alt="" class="empty-art"><div><h1 id="h1" tabindex="-1">Request sent</h1><p>The group owner will approve or decline your request. If they approve, the group shows up in My groups.</p><a class="btn primary" href="#/groups">Go to My groups</a></div></div></section>`;
+      $('#h1').focus();
+      say('Join request sent. The owner will review it.');
+      return;
+    }
+    say('Joined ' + r.room.title);
+    location.hash = '#/room/' + r.room.id;
   } catch (e) {
     main.innerHTML = `<section class="page"><div class="empty center"><img src="assets/art/puzzle_piece.png" width="150" height="152" alt="" class="empty-art"><div><h1 id="h1" tabindex="-1">That invite didn’t work</h1><p>${esc(e.message)}</p><a class="btn primary" href="#/">Go to KNOT</a></div></div></section>`;
     $('#h1').focus();
@@ -679,12 +899,38 @@ async function renderRoom(id) {
     main.innerHTML = `<section class="page"><div class="empty center"><img src="assets/art/puzzle_piece.png" width="150" height="152" alt="" class="empty-art"><div><h1 id="h1" tabindex="-1">We couldn’t open that group</h1><p>${esc(e.message)}</p><a class="btn primary" href="#/groups">Back to My groups</a></div></div></section>`;
     $('#h1').focus(); return;
   }
+  if (!room.isMember) { // public preview: read-only card with a join button
+    main.innerHTML = `<section class="room"><a class="back" href="#/discover">← Discover</a>
+      <header class="room-head">${markImg(64)}<div><h1 id="h1" tabindex="-1">${esc(room.title)}</h1>
+      <p class="room-goal"><span class="gq-label">Goal</span> “${esc(room.goal)}”</p>
+      <p class="meta">${room.capacityUsed}/${room.capacity} members · ${room.joinMode === 'request' ? 'asks to join' : 'open to join'}${room.demo ? ' · demo group' : ''}</p>
+      <button type="button" class="btn primary" id="previewJoin">${room.joinMode === 'request' ? 'Ask to join' : 'Join group'}</button></div></header>
+      <p class="msg info small">Join to see messages and chat. ${room.demo ? 'This is a guest demo group kept out of Discover.' : 'Only members can read this group.'}</p></section>`;
+    $('#h1').focus({ preventScroll: true });
+    $('#previewJoin').addEventListener('click', async e => {
+      e.target.disabled = true;
+      try {
+        const r = await apiRaw(`/api/rooms/${id}/join`, { method: 'POST', body: '{}' });
+        if (r.pending) { e.target.textContent = 'Request sent'; say('Join request sent. The owner will approve it.'); return; }
+        renderRoom(id);
+      } catch (ex) { e.target.disabled = false; say(ex.message); }
+    });
+    return;
+  }
+  const isOwner = room.myRole === 'owner';
+  const canMod = isOwner || room.myRole === 'moderator';
+  const askknotOn = room.aiMode !== 'off' && !localRooms;
   main.innerHTML = `<section class="room">
     <a class="back" href="#/groups">← My groups</a>
     <header class="room-head">${markImg(64)}<div><h1 id="h1" tabindex="-1">${esc(room.title)}</h1>
       <p class="room-goal"><span class="gq-label">Goal</span> “${esc(room.goal)}”</p>
-      <button type="button" class="btn quiet sm" id="inviteBtn">Copy invite link</button>
-      <span id="inviteCopied" class="hint" hidden>Invite link copied. Anyone who opens it can join this room.</span>
+      <p class="meta">${room.capacityUsed}/${room.capacity} members${room.ageScope ? ' · ' + (room.ageScope === 'teen' ? '13 to 17' : '18+') : ''}${room.aiMode !== 'off' ? ' · KNOT AI ' + room.aiMode : ''} · you are ${esc(room.myRole || 'member')}</p>
+      <div class="room-actions">
+        ${room.inviteCode ? `<button type="button" class="btn quiet sm" id="inviteBtn">Copy invite link</button>` : ''}
+        ${!isOwner ? `<button type="button" class="btn quiet sm" id="leaveBtn">Leave group</button>` : ''}
+        ${isOwner ? `<button type="button" class="btn quiet sm" id="settingsBtn">Group settings</button>` : ''}
+      </div>
+      <span id="inviteCopied" class="hint" hidden>Invite link copied. Anyone who opens it can ask to join this room.</span>
     </div></header>
     <div class="room-grid">
       <div class="chat">
@@ -692,7 +938,7 @@ async function renderRoom(id) {
         <div id="draftBox" class="draft" hidden></div>
         <form id="composer" class="composer" novalidate>
           <label for="msgText" class="sr">Message</label>
-          <textarea id="msgText" rows="2" maxlength="2000" placeholder="Write a message to the group" aria-describedby="msgErr"></textarea>
+          <textarea id="msgText" rows="2" maxlength="2000" placeholder="${askknotOn ? 'Write a message, or type /askknot to ask KNOT AI' : 'Write a message to the group'}" aria-describedby="msgErr"></textarea>
           <div class="composer-row">
             <button type="button" class="btn quiet" id="assistBtn"><img src="assets/art/sparkle.png" width="20" height="20" alt="" class="spark"><span>Help us get started</span></button>
             <span id="sentOk" class="msg ok" hidden>${icon.check}<span>Message sent</span></span>
@@ -703,31 +949,56 @@ async function renderRoom(id) {
       </div>
       <aside class="members" aria-labelledby="memHead">
         <h2 id="memHead">Members</h2>
-        <ul>${room.members.map(m => {
+        ${canMod && (room.joinRequests || []).length ? `<div class="mod-block"><h3>Join requests</h3><ul>${room.joinRequests.map(r => `<li class="req-row"><span><strong>${esc(r.name)}</strong> <span class="meta">asked to join</span></span><span><button type="button" class="btn primary sm" data-approve="${esc(r.pid)}">Approve</button><button type="button" class="btn ghost sm" data-decline="${esc(r.pid)}">Decline</button></span></li>`).join('')}</ul></div>` : ''}
+        <ul id="memberList">${room.members.map(m => {
           const isDemo = m.demo !== false;
-          const meta = m.you ? 'Group creator' : (!isDemo ? esc(m.modeText) : esc(m.city ? `${m.city} · ` : '') + esc(m.modeText));
-          const extra = !isDemo ? '' : `<span class="meta">${esc(m.skillLabels.join(', '))}</span><span class="meta ${m.availabilityDays ? '' : 'unk'}">${m.availabilityDays ? 'Free: ' : ''}${esc(m.availabilityText)}</span>`;
-          const badge = !isDemo ? (m.you ? '' : '<span class="badge neutral">Real member</span>') : '<span class="badge neutral">Demo profile</span>';
-          return `<li><span class="avatar sm" aria-hidden="true">${esc(initials(m.name))}</span><span><strong>${esc(m.name)}</strong>${m.you ? ' (you)' : ''} ${badge}<span class="meta">${meta}</span>${extra}</span></li>`;
+          const roleBadge = !isDemo && m.role && m.role !== 'member' ? `<span class="badge role">${esc(cap(m.role))}</span>` : '';
+          const badge = !isDemo ? (m.you ? roleBadge : `<span class="badge neutral">Real member</span> ${roleBadge}`) : '<span class="badge neutral">Demo profile</span>';
+          const meta = m.you ? 'You' : (!isDemo ? esc(m.modeText) : esc(m.city ? `${m.city} · ` : '') + esc(m.modeText));
+          const extra = !isDemo ? '' : `<span class="meta">${esc((m.skillLabels || []).join(', '))}</span><span class="meta ${m.availabilityDays ? '' : 'unk'}">${m.availabilityDays ? 'Free: ' : ''}${esc(m.availabilityText)}</span>`;
+          const menu = (!isDemo && !m.you) ? `<details class="member-menu"><summary aria-label="Actions for ${esc(m.name)}">⋯</summary><div class="menu-pop">
+            ${isOwner && m.role !== 'owner' ? `<button type="button" data-action="promote" data-pid="${esc(m.id)}" data-role="moderator">Make moderator</button>
+            ${m.role === 'moderator' ? '<button type="button" data-action="promote" data-pid="' + esc(m.id) + '" data-role="member">Make member</button>' : ''}
+            <button type="button" data-action="transfer" data-pid="${esc(m.id)}">Make owner</button>` : ''}
+            ${canMod && m.role !== 'owner' ? `<button type="button" data-action="kick" data-pid="${esc(m.id)}">Remove from group</button>
+            <button type="button" class="danger" data-action="ban" data-pid="${esc(m.id)}">Remove and ban</button>` : ''}
+            <button type="button" data-action="report" data-pid="${esc(m.id)}">Report to organizer</button>
+            <button type="button" data-action="block" data-pid="${esc(m.id)}">Block (keeps them out of your matches)</button>
+          </div></details>` : '';
+          return `<li><span class="avatar sm" aria-hidden="true">${esc(initials(m.name))}</span><span class="mem-main"><strong>${esc(m.name)}</strong>${m.you ? ' (you)' : ''} ${badge}<span class="meta">${meta}</span>${extra}</span>${menu}</li>`;
         }).join('')}</ul>
-        <p class="msg info small">Profiles tagged “Demo profile” are fictional examples from the KNOT community. They won’t reply. Everyone who opens the invite link joins for real and can chat here.</p>
+        ${canMod && (room.bans || []).length ? `<div class="mod-block"><h3>Removed (banned)</h3><ul>${room.bans.map(b => `<li><span><strong>${esc(b.name)}</strong> <span class="meta">${esc(b.reason || 'no reason given')}</span></span><button type="button" class="btn ghost sm" data-unban="${esc(b.pid)}">Allow back in</button></li>`).join('')}</ul></div>` : ''}
+        <p class="msg info small">Profiles tagged “Demo profile” are fictional examples from the KNOT community. They won’t reply. Everyone who joins through the invite link is a real member and can chat here.</p>
+        <p class="msg info small">Meet new people in public places, bring a friend, and tell someone where you are going. Use Report for anything worrying; KNOT never claims members are screened.</p>
       </aside>
     </div></section>`;
   $('#h1').focus({ preventScroll: true });
   let lastCount = -1;
+  const mineMsg = m => (state.acct ? m.authorAccountId === state.acct.accountId : (m.authorId === state.sessionId || m.authorId === state.clientId));
   const paint = (r, force) => {
     if (!force && r.messages.length === lastCount) return;
     const box = $('#msgs'); const near = box.scrollHeight - box.scrollTop - box.clientHeight < 80 || lastCount < 0;
     lastCount = r.messages.length; if (lastCount) state.roomNext = null; queueNext();
-    box.innerHTML = r.messages.length ? r.messages.map(m => `<li class="msg-item ${m.authorId === state.sessionId || m.authorId === state.clientId ? 'mine' : ''}"><div class="bubble"><div class="m-head"><strong>${esc(m.authorName)}</strong>${m.kind === 'assistant' ? '<span class="badge assistant">Assistant draft</span>' : ''}<time datetime="${esc(m.ts)}">${esc(timeFmt(m.ts))}</time></div><p>${esc(m.text)}</p></div></li>`).join('')
+    box.innerHTML = r.messages.length ? r.messages.map(m => `<li class="msg-item ${m.kind === 'assistant' ? 'ai' : (mineMsg(m) ? 'mine' : '')}"><div class="bubble"><div class="m-head"><strong>${esc(m.authorName)}</strong>${m.kind === 'assistant' ? '<span class="badge assistant">KNOT AI</span>' : ''}<time datetime="${esc(m.ts)}">${esc(timeFmt(m.ts))}</time></div><p>${esc(m.text)}</p></div></li>`).join('')
       : `<li class="msg-empty"><img src="assets/art/heart_chat.png" width="120" height="104" alt="" loading="lazy"><p><strong>Say hello.</strong> Start the conversation, or ask for a first step.</p></li>`;
     if (near) box.scrollTop = box.scrollHeight;
   };
   paint(room, true); queueNext();
-  state.pollTimer = setInterval(async () => { try { const r = (await api('/api/rooms/' + id)).room; room.messages = r.messages; room.members = r.members; paint(r); } catch { /* offline: keep showing */ } }, 2500);
+  let lastModSig = JSON.stringify([room.joinRequests, room.bans, room.myRole]);
+  state.pollTimer = setInterval(async () => {
+    try {
+      const d = await api('/api/rooms/' + id);
+      const sig = JSON.stringify([d.room.joinRequests, d.room.bans, d.room.myRole]);
+      room.messages = d.room.messages; room.members = d.room.members;
+      room.joinRequests = d.room.joinRequests; room.bans = d.room.bans;
+      room.aiMode = d.room.aiMode; room.myRole = d.room.myRole;
+      paint(d.room);
+      if (sig !== lastModSig) { lastModSig = sig; renderRoom(id); } // a request or role changed: full repaint
+    } catch { /* offline: keep showing */ }
+  }, 2500);
 
-  if (localRooms) { const ib = $('#inviteBtn'); if (ib) ib.hidden = true; }
-  $('#inviteBtn').addEventListener('click', async () => {
+  if (!room.inviteCode) { const ib = $('#inviteBtn'); if (ib) ib.hidden = true; }
+  else $('#inviteBtn').addEventListener('click', async () => {
     const link = location.origin + location.pathname + '#/join/' + room.inviteCode;
     try { await navigator.clipboard.writeText(link); }
     catch { prompt('Copy this invite link and share it with your group:', link); }
@@ -735,11 +1006,45 @@ async function renderRoom(id) {
     say('Invite link copied');
   });
 
+  const refresh = async () => {
+    try {
+      const d = await api('/api/rooms/' + id);
+      room = Object.assign(room, d.room);
+      paint(room, true);
+      clearInterval(state.pollTimer); state.pollTimer = null;
+      renderRoom(id); // full repaint keeps role menus and mod blocks in sync
+    } catch { /* keep current view */ }
+  };
+  const modAction = async (action, body) => {
+    try { await apiRaw(`/api/rooms/${id}/${action}`, { method: 'POST', body: JSON.stringify(body || {}) }); say('Done'); refresh(); }
+    catch (ex) { say(ex.message); }
+  };
+  $('#memberList').addEventListener('click', async e => {
+    const b = e.target.closest('[data-action]'); if (!b) return;
+    const pid = b.dataset.pid, action = b.dataset.action;
+    if (action === 'report') return openReport({ roomId: id, targetPid: pid });
+    if (action === 'block') { try { await apiRaw('/api/blocks', { method: 'POST', body: JSON.stringify({ pid }) }); say('Blocked. They stay out of your matches and join requests.'); } catch (ex) { say(ex.message); } return; }
+    if (action === 'promote') return modAction('promote', { pid, role: b.dataset.role });
+    if (action === 'transfer') { if (confirm('Hand this group over to ' + (room.members.find(m => m.id === pid) || {}).name + '? You become a regular member.')) modAction('transfer', { pid }); return; }
+    if (action === 'kick') { if (confirm('Remove this member from the group?')) modAction('kick', { pid }); return; }
+    if (action === 'ban') { if (confirm('Remove AND ban? They cannot rejoin unless a moderator unbans them.')) modAction('ban', { pid, reason: 'Removed by ' + (state.acct ? state.acct.name : 'moderator') }); return; }
+  });
+  document.addEventListener('click', e => { if (!e.target.closest('.member-menu')) $$('.member-menu[open]').forEach(d => d.removeAttribute('open')); }, { capture: true });
+  $$('.mod-block [data-unban]').forEach(b => b.addEventListener('click', () => modAction('unban', { pid: b.dataset.unban })));
+  $$('.mod-block [data-approve]').forEach(b => b.addEventListener('click', () => modAction('requests', { pid: b.dataset.approve, approve: true })));
+  $$('.mod-block [data-decline]').forEach(b => b.addEventListener('click', () => modAction('requests', { pid: b.dataset.decline, approve: false })));
+
+  const leaveBtn = $('#leaveBtn'); if (leaveBtn) leaveBtn.addEventListener('click', async () => {
+    if (!confirm('Leave this group?')) return;
+    try { await apiRaw(`/api/rooms/${id}/leave`, { method: 'POST', body: '{}' }); location.hash = '#/groups'; } catch (ex) { say(ex.message); }
+  });
+  const settingsBtn = $('#settingsBtn'); if (settingsBtn) settingsBtn.addEventListener('click', () => openSettings(room, refresh));
+
   const post = async (text, kind) => {
     // In shared mode the server stamps the author from the session cookie; the browser never names itself.
-    const body = localRooms ? { text, kind, authorId: state.clientId, authorName: state.me ? state.me.name : 'You' } : { text, kind };
+    const body = localRooms ? { text, kind, authorId: state.clientId, authorName: state.me ? state.me.name : 'You' } : { text, kind, clientMsgId: uid() };
     const { message } = await api(`/api/rooms/${id}/messages`, { method: 'POST', body: JSON.stringify(body) });
-    room.messages.push(message); paint(room, true);
+    if (!message.duplicate) { room.messages.push(message); paint(room, true); }
     const ok = $('#sentOk'); ok.hidden = false; say('Message sent'); clearTimeout(ok._t); ok._t = setTimeout(() => { ok.hidden = true; }, 3000);
   };
   const ta = $('#msgText');
@@ -752,7 +1057,12 @@ async function renderRoom(id) {
     if (!text) { const er = $('#msgErr'); er.innerHTML = icon.alert + '<span>Type a message first.</span>'; er.hidden = false; ta.focus(); return; }
     sending = true; $('#sendBtn').disabled = true;
     try { await post(text, 'user'); ta.value = ''; ta.focus(); }
-    catch (err) { const er = $('#msgErr'); er.innerHTML = icon.alert + `<span>Your message wasn’t sent (${esc(err.message)}). It’s still in the box. Try again.</span>`; er.hidden = false; }
+    catch (err) {
+      const er = $('#msgErr');
+      er.innerHTML = icon.alert + `<span>${esc(err.message)}</span>`; er.hidden = false;
+      if (!err.held) er.insertAdjacentHTML('beforeend', ' <span>Your message is still in the box.</span>');
+      if (err.held) ta.value = '';
+    }
     finally { sending = false; $('#sendBtn').disabled = false; }
   });
 
@@ -780,24 +1090,85 @@ async function renderRoom(id) {
   });
 }
 
+// Group settings dialog (owner): title, AI mode, joining, visibility, capacity.
+function openSettings(room, onSaved) {
+  const d = $('#settingsDialog');
+  const aiOptions = [['off', 'Off (default)'], ['on-demand', 'On demand: members type /askknot'], ['on', 'On: replies after each message']];
+  d.innerHTML = `<form method="dialog" id="settingsForm" novalidate class="dlg">
+    <div class="dlg-head">${markImg(48)}<div><h2 id="settingsTitle">Group settings</h2><p class="hint">Only you, the owner, can change these.</p></div></div>
+    <div class="field"><label for="sTitle">Group name</label><input id="sTitle" type="text" maxlength="80" value="${esc(room.title)}"></div>
+    <fieldset class="field"><legend>KNOT AI in this room</legend>
+      <div class="chips" role="radiogroup">${aiOptions.map(([v, l]) => `<label class="toggle"><input type="radio" name="sAi" value="${v}" ${room.aiMode === v ? 'checked' : ''}><span>${esc(l)}</span></label>`).join('')}</div>
+      <p class="hint">KNOT AI answers from this group's real member profiles. It never speaks as a human, and members see the “KNOT AI” badge on its messages. With no AI configured, this stays off.</p>
+    </fieldset>
+    <fieldset class="field"><legend>Joining</legend><div class="chips">
+      <label class="toggle"><input type="radio" name="sJoin" value="open" ${room.joinMode === 'open' ? 'checked' : ''}><span>Anyone can join</span></label>
+      <label class="toggle"><input type="radio" name="sJoin" value="request" ${room.joinMode === 'request' ? 'checked' : ''}><span>You approve each request</span></label></div></fieldset>
+    <fieldset class="field"><legend>Visibility</legend><div class="chips">
+      <label class="toggle"><input type="radio" name="sVis" value="public" ${room.visibility === 'public' ? 'checked' : ''}><span>Public (in Discover)</span></label>
+      <label class="toggle"><input type="radio" name="sVis" value="private" ${room.visibility === 'private' ? 'checked' : ''}><span>Private (invite only)</span></label></div></fieldset>
+    <div class="field"><label for="sCap">Member cap</label><input id="sCap" type="number" min="2" max="50" value="${room.capacity || 12}"></div>
+    <p class="msg err" id="sErr" role="alert" hidden></p>
+    <div class="dlg-actions"><button type="button" class="btn ghost" id="sCancel">Cancel</button><button type="submit" class="btn primary">Save settings</button></div></form>`;
+  d.showModal();
+  $('#sCancel').addEventListener('click', () => d.close());
+  $('#settingsForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const body = {
+      title: $('#sTitle').value.trim(), aiMode: ($('input[name=sAi]:checked') || { value: 'off' }).value,
+      joinMode: ($('input[name=sJoin]:checked') || { value: 'open' }).value,
+      visibility: ($('input[name=sVis]:checked') || { value: 'public' }).value,
+      capacity: Number($('#sCap').value) || 12
+    };
+    try { await apiRaw('/api/rooms/' + room.id, { method: 'PATCH', body: JSON.stringify(body) }); d.close(); say('Settings saved'); onSaved && onSaved(); }
+    catch (ex) { const er = $('#sErr'); er.innerHTML = icon.alert + `<span>${esc(ex.message)}</span>`; er.hidden = false; }
+  });
+}
+
+// Report dialog: files a report for a human to review; nothing happens automatically.
+function openReport({ roomId, targetPid, messageId, messageText }) {
+  const d = $('#settingsDialog');
+  const reasons = ['Harassment or bullying', 'Sexual content', 'Safety concern or pressure to meet secretly', 'Scam or payment solicitation', 'Someone pretending to be me', 'Something else'];
+  d.innerHTML = `<form method="dialog" id="reportForm" novalidate class="dlg">
+    <div class="dlg-head"><img src="assets/art/artists_palette.png" width="72" height="55" alt="" class="dlg-art"><div><h2 id="reportTitle">Report a concern</h2><p class="hint">A report goes to the organizers for human review. Nothing happens automatically to anyone.</p></div></div>
+    <fieldset class="field"><legend>What happened?</legend>
+      <div class="chips chips-col">${reasons.map((r, i) => `<label class="toggle"><input type="radio" name="rReason" value="${esc(r)}" ${i === 0 ? 'checked' : ''}><span>${esc(r)}</span></label>`).join('')}</div>
+    </fieldset>
+    <div class="field"><label for="rDetails">Anything else organizers should know <span class="opt">(optional)</span></label><textarea id="rDetails" rows="3" maxlength="500"></textarea></div>
+    <div class="dlg-actions"><button type="button" class="btn ghost" id="rCancel">Cancel</button><button type="submit" class="btn primary">Send report</button></div></form>`;
+  d.showModal();
+  $('#rCancel').addEventListener('click', () => d.close());
+  $('#reportForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      const r = await apiRaw('/api/reports', { method: 'POST', body: JSON.stringify({ roomId, targetPid, messageId, messageText, reason: ($('input[name=rReason]:checked') || { value: 'Something else' }).value, details: $('#rDetails').value.trim() }) });
+      d.close(); say(r.note || 'Report sent.');
+    } catch (ex) { d.close(); say(ex.message); }
+  });
+}
+
 // ---------- boot ----------
 async function boot() {
   $('#profileBtn').addEventListener('click', () => openProfile());
-  ['profileDialog', 'createDialog'].forEach(id => { const d = $('#' + id); d.addEventListener('click', e => { if (e.target === d) d.close(); }); });
+  $('#authBtn').addEventListener('click', () => { state.acct ? signOut() : openAuth('in'); });
+  ['profileDialog', 'createDialog', 'authDialog', 'settingsDialog'].forEach(id => { const d = $('#' + id); d.addEventListener('click', e => { if (e.target === d) d.close(); }); });
   try {
     const s = await apiRaw('/api/status');
     localRooms = s.persistent === false;
+    if (localRooms) { const db = $('#authBtn'); if (db) db.hidden = true; const dv = $('#navDiscover'); if (dv) dv.hidden = true; }
   } catch { /* older server */ }
   // Server-side anonymous session (HttpOnly cookie). The server stamps message authors and group
   // ownership from it; the browser cannot claim an identity. legacyClientId keeps groups that were
-  // created before this upgrade visible in My groups.
+  // created before this upgrade visible in My groups. A signed-in session returns the account here.
   try {
     const s = await apiRaw('/api/session', { method: 'POST', body: JSON.stringify({ legacyClientId: state.clientId }) });
     state.sessionId = s.id; state.sessionName = s.name;
-    if (state.me && state.me.name && state.me.name !== s.name) {
+    state.acct = s.signedIn ? s : null;
+    if (state.me && state.me.name && state.me.name !== s.name && !s.signedIn) {
       apiRaw('/api/profile', { method: 'POST', body: JSON.stringify({ name: state.me.name }) }).catch(() => {});
     }
   } catch { /* offline: local-only identity until reload */ }
+  paintHeader();
   for (let i = 0; i < 3 && !state.skills.length; i++) { try { state.skills = (await apiRaw('/api/skills')).skills; } catch { await new Promise(r => setTimeout(r, 400)); } }
   route(true);
 }

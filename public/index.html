@@ -23,12 +23,14 @@
       </a>
       <nav class="nav" aria-label="Main">
         <a class="nav-link" id="navHome" href="#/">Home</a>
+        <a class="nav-link" id="navDiscover" href="#/discover">Discover</a>
         <a class="nav-link" id="navFinder" href="#/finder">AI Finder</a>
         <a class="nav-link" id="navGroups" href="#/groups">My groups <span class="count" id="groupCount" hidden></span></a>
         <button class="profile-btn" id="profileBtn" type="button" aria-haspopup="dialog" aria-label="Your profile">
           <span class="avatar sm" id="profileAvatar" aria-hidden="true">?</span>
           <span id="profileLabel">Profile</span>
         </button>
+        <button class="btn sm auth-btn" id="authBtn" type="button" aria-haspopup="dialog">Sign in</button>
       </nav>
     </div>
   </header>
@@ -37,5 +39,7 @@
   <div id="overlayRoot"></div>
   <dialog id="profileDialog" aria-labelledby="profileTitle"></dialog>
   <dialog id="createDialog" aria-labelledby="createTitle"></dialog>
+  <dialog id="authDialog" aria-labelledby="authTitle"></dialog>
+  <dialog id="settingsDialog" aria-labelledby="settingsTitle"></dialog>
 </body>
 </html>
