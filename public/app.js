@@ -109,6 +109,7 @@ const state = {
   resp: null, respKey: null,
   selected: new Set(),
   skills: [],
+  rooms: [],             // the groups this person is in, so help can open one by name
   pollTimer: null,
   typingTimer: null
 };
@@ -287,9 +288,10 @@ function paintHeader() {
 async function refreshGroupCount() {
   try {
     const { rooms } = await api('/api/rooms?clientId=' + encodeURIComponent(state.clientId));
+    state.rooms = rooms;
     const c = $('#groupCount'); c.textContent = rooms.length; c.hidden = !rooms.length;
     return rooms;
-  } catch { return []; }
+  } catch { return state.rooms || []; }
 }
 
 // ---------- routing ----------
@@ -966,7 +968,7 @@ function openAuth(mode = 'in') {
 }
 async function signOut() {
   try { await apiRaw('/api/auth/signout', { method: 'POST', body: '{}' }); } catch { /* offline */ }
-  state.acct = null; paintHeader();
+  state.acct = null; state.rooms = []; paintHeader();
   say('Signed out. Your groups are still here under your account.');
 }
 
@@ -1123,7 +1125,7 @@ function openProfile(opts = {}) {
   if (del) del.addEventListener('click', async () => {
     if (!await askConfirm({ title: 'Delete your account?', body: 'Your email is removed and your name is cleared. This cannot be undone.', yes: 'Delete my account', no: 'Keep my account', danger: true })) return;
     try { await apiRaw('/api/auth/delete-account', { method: 'POST', body: '{}' }); } catch (ex) { showErr('#pErr', ex.message); return; }
-    state.acct = null; d.close(); paintHeader(); route(false);
+    state.acct = null; state.rooms = []; d.close(); paintHeader(); route(false);
     say('Account deleted. You are now browsing as a guest.');
   });
   // State narrows the city list; the city box itself stays free text, so a place that is not on the
@@ -1883,12 +1885,13 @@ function openReport(room, target) {
 // ---------- HELP ----------
 // One button in the corner for anyone who is stuck. The answer comes from the app's own state first
 // ("what do I do next" is answered from the matcher's next step), then from the help bot, then from
-// the server's keyword fallback, so it still answers with no AI key configured. When an answer has
-// somewhere to go, the panel closes and the page takes the member there.
-const HELP_IDEAS = ['What do I do next?', 'How do I make a group?', 'Where are my groups?', 'How does matching work?'];
+// the server's keyword fallback, so it still answers with no AI key configured. When the question
+// asks where something is, the panel closes and the page takes them there; anything else offers the
+// way as a button, so a how-to answer never yanks the page out from under them.
+const HELP_IDEAS = ['What do I do next?', 'Take me to my groups', 'How do I make a group?', 'Where is my profile?'];
 // Each guide target mapped to the control it names, so an answer can point at the real thing.
 const HELP_TARGETS = { goal: '.goal-wrap', need: '.goal-wrap', find: '#findBtn', finderInput: '#fInput', profile: '#profileBtn', auth: '#authBtn', offer: '#offerInput', create: '#createBtn' };
-const HELP_PAGE_NAMES = { '#/': 'Home', '#/finder': 'the AI Finder', '#/groups': 'My groups' };
+const HELP_PAGE_NAMES = { '#/': 'Home', '#/discover': 'Discover', '#/finder': 'the AI Finder', '#/groups': 'My groups' };
 const helpLog = [];
 
 function paintHelpButton() {
@@ -1902,7 +1905,7 @@ function openHelp() {
   d.innerHTML = `<div class="help-panel">
     <div class="help-head">
       <span class="help-mark">${markImg(30)}</span>
-      <div class="help-title"><h2 id="helpTitle">Help</h2><p class="hint">Ask where things are and I will point you to them.</p></div>
+      <div class="help-title"><h2 id="helpTitle">Help</h2><p class="hint">Ask where things are and I will take you there.</p></div>
       <button type="button" class="help-x" id="helpClose" aria-label="Close help">${icon.x}</button>
     </div>
     <div class="help-log" id="helpLog" role="log" aria-live="polite" aria-label="Help conversation"></div>
@@ -1923,7 +1926,7 @@ function openHelp() {
   $$('#helpIdeas [data-idea]').forEach(b => b.addEventListener('click', () => askHelp(b.dataset.idea)));
   $('#helpLog').addEventListener('click', e => {
     const go = e.target.closest('[data-go]');
-    if (go) takeHelpAction({ hash: go.dataset.go });
+    if (go) takeHelpAction({ hash: go.dataset.go || null, dialog: go.dataset.goDialog || null, label: go.dataset.goLabel || '' });
   });
   $('#helpForm').addEventListener('submit', e => { e.preventDefault(); askHelp($('#helpInput').value); });
   $('#helpInput').focus();
@@ -1935,7 +1938,7 @@ function paintHelpLog() {
   // always looks like a wait.
   box.innerHTML = helpLog.map(m => m.wait
     ? '<p class="help-bubble bot wait" aria-label="Help is typing"><span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span></p>'
-    : `<p class="help-bubble ${m.role === 'user' ? 'me' : 'bot'}">${esc(m.text)}${m.go ? `<button type="button" class="help-go" data-go="${esc(m.go.hash)}">${esc(m.go.label)}</button>` : ''}</p>`).join('');
+    : `<p class="help-bubble ${m.role === 'user' ? 'me' : 'bot'}">${esc(m.text)}${m.go ? `<button type="button" class="help-go" data-go="${esc(m.go.hash || '')}" data-go-dialog="${esc(m.go.dialog || '')}" data-go-label="${esc(m.go.label || '')}">Take me to ${esc(m.go.label || 'there')}</button>` : ''}</p>`).join('');
   box.scrollTop = box.scrollHeight;
 }
 
@@ -1962,16 +1965,20 @@ async function askHelp(text) {
       method: 'POST',
       body: JSON.stringify({
         history: helpLog.filter(m => !m.wait).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text })),
-        context: { next: helpNext() }
+        // The groups they are in travel with the question, so "take me to the camping group" can
+        // open that room instead of the list of rooms.
+        context: { next: helpNext(), groups: (state.rooms || []).map(r => ({ id: r.id, title: r.title })) }
       })
     });
     helpLog.pop();
-    // The answer is the bot's own words. If it names a page, the way there is offered as a button
-    // rather than taken: the panel stays open so the conversation is still there.
-    const page = HELP_PAGE_NAMES[out.hash];
-    helpLog.push({ role: 'bot', text: out.reply || 'How can I help?', go: page ? { hash: out.hash, label: 'Take me to ' + page } : null });
+    // The answer is the bot's own words, with the way there beside them. A question that asked
+    // where something is gets taken there straight away; the answer stays in the log for when they
+    // come back to the panel.
+    const go = helpDestination(out);
+    helpLog.push({ role: 'bot', text: out.reply || 'How can I help?', go });
     paintHelpLog();
-    if (out.highlight) flashHelpTarget(out.highlight, 0);
+    if (out.navigate && go) setTimeout(() => takeHelpAction(go), 650);
+    else if (out.highlight) flashHelpTarget(out.highlight, 0);
   } catch {
     helpLog.pop();
     helpLog.push({ role: 'bot', text: state.acct ? 'I could not answer just now. The top bar goes to Home, Discover, AI Finder and My groups.' : 'I could not answer just now. The top bar goes to Home, and Sign in is next to it.' });
@@ -1979,13 +1986,26 @@ async function askHelp(text) {
   } finally { state.helpBusy = false; }
 }
 
+// Where an answer can take someone: a page route, a panel that opens over the page, or nothing.
+function helpDestination(out) {
+  if (!out) return null;
+  if (out.hash) return { hash: out.hash, dialog: null, label: out.label || HELP_PAGE_NAMES[out.hash] || 'there' };
+  if (out.dialog === 'profile') return { hash: null, dialog: 'profile', label: out.label || 'your profile' };
+  return null;
+}
+
 // An answer that has somewhere to go closes the panel and goes there, then rings the control it
 // named for a moment so the member can see what it was talking about.
 function takeHelpAction(out) {
   const d = $('#helpDialog'); if (d.open) d.close();
+  if (out.dialog === 'profile') {
+    openProfile();
+    say('Help opened ' + (out.label || 'your profile') + '.');
+    return;
+  }
   if (out.hash && out.hash !== (location.hash || '#/')) {
     location.hash = out.hash;
-    say('Help took you to ' + out.hash.replace('#/', '').replace(/^\w/, c => c.toUpperCase()));
+    say('Help took you to ' + (out.label || out.hash) + '.');
   }
   if (out.highlight) flashHelpTarget(out.highlight, out.hash ? 400 : 0);
 }

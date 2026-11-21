@@ -571,6 +571,12 @@ test('help bot: a guest is pointed at sign in, a member is offered the page', as
   assert.equal(mine.action, 'groups');
   assert.equal(mine.hash, '#/groups');
   assert.ok(!/free account/i.test(mine.reply), 'a member is not told to sign in');
+  // Asked to be taken to one of their own groups, the answer points at that room, not the list.
+  const { room } = await (await post('/api/rooms', { requestId: 'req-help', title: 'Camping trip', goal: 'Plan a camping trip.', memberIds: [] }, member)).json();
+  const named = await ask(member, 'take me to the camping trip group', { groups: [{ id: room.id, title: room.title }] });
+  assert.equal(named.hash, '#/room/' + room.id);
+  assert.equal(named.navigate, true, 'a request to go somewhere is a request to be moved');
+  assert.match(named.label, /Camping trip/);
   // the app's own state still answers "what next" exactly, with a control to ring
   const next = await ask(guest, 'what do I do next?', { next: { target: 'auth' } });
   assert.equal(next.source, 'app');

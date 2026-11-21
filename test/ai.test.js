@@ -103,6 +103,57 @@ test('the plain help answers vary, so asking twice is not the same sentence', ()
   assert.equal(guest.highlight, 'auth');
 });
 
+test('the help bot takes someone to the page they asked for', async () => {
+  const groups = [{ id: 'r1', title: 'Saturday film crew' }, { id: 'r2', title: 'Camping trip' }];
+  // No model: the local answer is what a keyless deploy shows, and it still moves the page.
+  aiOn = false;
+  const ask = q => ai.helpTurn({ history: [{ role: 'user', content: q }], signedIn: true, context: { groups } });
+  const mine = await ask('take me to my groups');
+  assert.equal(mine.hash, '#/groups');
+  assert.equal(mine.navigate, true, 'asked to be taken there, so KNOT opens it');
+  assert.equal(mine.label, 'My groups');
+  const finder = await ask('where is the AI Finder?');
+  assert.equal(finder.hash, '#/finder', 'the same page named a different way');
+  assert.equal(finder.navigate, true);
+  const profile = await ask('where is my profile?');
+  assert.equal(profile.dialog, 'profile', 'the profile is a panel, so it opens over the page');
+  assert.equal(profile.navigate, true);
+  // A how-to question names a page but is not a request to be moved: it offers the way instead.
+  aiOn = true; next = async () => ({ reply: 'Match on Home, tick Add to group, then press Create group.', action: 'home' });
+  const how = await ask('how do I make a group?');
+  assert.equal(how.hash, '#/');
+  assert.equal(how.navigate, false, 'an explanation does not yank the page away');
+});
+
+test('the help bot opens the group someone names, not the list of groups', async () => {
+  const groups = [{ id: 'r1', title: 'Saturday film crew' }, { id: 'r2', title: 'Camping trip' }];
+  aiOn = false;
+  const out = await ai.helpTurn({ history: [{ role: 'user', content: 'take me to the camping trip group' }], signedIn: true, context: { groups } });
+  assert.equal(out.hash, '#/room/r2');
+  assert.equal(out.navigate, true);
+  assert.match(out.label, /Camping trip/);
+  // A group nobody named is not guessed at: the question is about the list.
+  const list = await ai.helpTurn({ history: [{ role: 'user', content: 'where are my groups?' }], signedIn: true, context: { groups } });
+  assert.equal(list.hash, '#/groups');
+  // A city or a skill in the question is not a group name.
+  const other = await ai.helpTurn({ history: [{ role: 'user', content: 'who can help me film in Plano?' }], signedIn: true, context: { groups } });
+  assert.ok(!/^#\/room\//.test(other.hash || ''), 'no room is opened by a passing mention: ' + other.hash);
+  // The model can name the group too, by its title.
+  aiOn = true; next = async () => ({ reply: 'Opening Camping trip.', action: 'groups', group: 'Camping trip' });
+  const model = await ai.helpTurn({ history: [{ role: 'user', content: 'open that one' }], signedIn: true, context: { groups } });
+  assert.equal(model.hash, '#/room/r2');
+});
+
+test('a guest is never sent to a page they cannot open', async () => {
+  aiOn = false;
+  const groups = [{ id: 'r1', title: 'Saturday film crew' }];
+  const out = await ai.helpTurn({ history: [{ role: 'user', content: 'take me to my groups' }], signedIn: false, context: { groups } });
+  assert.equal(out.action, 'none');
+  assert.equal(out.hash, null);
+  assert.equal(out.navigate, false);
+  assert.equal(out.highlight, 'auth', 'the sign-in button is the only way forward');
+});
+
 test('a demo profile is told what the person said, and answers them by name', async () => {
   aiOn = true; calls = [];
   next = async () => ({ reply: 'Ada, the poster first, then I can take the edit. Shall we start tonight?' });
