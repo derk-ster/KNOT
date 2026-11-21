@@ -274,6 +274,8 @@ function renderHome() {
 // anyone who asked their system for less motion.
 function renderMemberHome() {
   const floats = ['laptop', 'heart', 'basketball', 'paper_plane', 'puzzle_piece', 'sparkle'];
+  // The same objects again at the foot of the page, so the decoration does not stop at the hero.
+  const endFloats = ['microphone', 'camera_video', 'navigation_arrow', 'headphones', 'artists_palette', 'heart_chat'];
   $('#main').innerHTML = `
   <div id="home" class="home member-home">
     <section class="mhero" aria-labelledby="h1">
@@ -340,10 +342,13 @@ function renderMemberHome() {
         </div>
       </div>
       <div class="offer-actions">
-        <p class="msg ok small" id="offerMsg" role="status" hidden></p>
         <button type="button" class="btn primary" id="offerSave">Save changes</button>
+        <p class="msg ok small" id="offerMsg" role="status" hidden></p>
       </div>
     </section>
+    <div class="end-floats" aria-hidden="true">
+      ${endFloats.map((n, i) => `<img class="ef ef-${i + 1}" src="assets/art/float/${n}.png" alt="" loading="lazy" decoding="async">`).join('')}
+    </div>
   </div>`;
   $('#h1').focus({ preventScroll: true });
 
@@ -1015,7 +1020,7 @@ function openCreate() {
   const acct = state.acct;
   const d = $('#createDialog');
   const demoNote = !acct ? `<p class="msg info small">You are not signed in, so this is a demo sandbox group: fictional profiles, kept off Discover, and not shared across devices. Create an account to make a real group that others can find and join.</p>` : '';
-  const memberNote = sel.length ? `<p class="msg info small">The people you picked are fictional demo profiles. They will not reply, but you can chat and plan here.</p>` : '';
+  const memberNote = sel.length ? `<p class="msg info small">The people you picked are fictional demo profiles. They chat back in their own words, but they are sample data and not real members.</p>` : '';
   d.innerHTML = `<form id="createForm" method="dialog" novalidate class="dlg">
     <div class="dlg-head">${markImg(48)}<div><h2 id="createTitle">Create your group</h2><p class="hint">Name it, decide who can find it, then start the chat.</p></div></div>
     <div class="goal-quote"><span class="gq-label">Your goal</span><p>"${esc(state.goal.trim())}"</p></div>
@@ -1206,7 +1211,7 @@ function paintRoom(room, isPoll) {
     </div>
   </div>
   ${room.description ? `<p class="room-desc">${esc(room.description)}</p>` : ''}
-  ${room.demo ? `<p class="msg info small">This is a demo sandbox group: the members are fictional profiles and will not reply. ${state.acct ? 'Create a group while signed in to make a real one others can find.' : 'Create an account to make real groups.'}</p>` : ''}
+  ${room.demo ? `<p class="msg info small">This is a demo sandbox group: the members are fictional profiles, and every reply from them is marked Demo. ${state.acct ? 'Create a group while signed in to make a real one others can find.' : 'Create an account to make real groups.'}</p>` : ''}
   ${aiOn && room.isMember ? `<p class="msg info small">KNOT AI is switched on in this group. Messages here may be shared with the AI provider to help the group. ${room.aiMode === 'on' ? 'It replies automatically.' : 'Use the Ask button for a response.'}</p>` : ''}
   ${!room.isMember && room.visibility === 'public' ? `<div class="msg info">You are previewing this public group. Join to read and write in the chat.<button type="button" class="btn primary sm" id="joinHereBtn">${room.joinMode === 'request' ? 'Ask to join' : 'Join group'}</button></div>` : ''}
   ${isMod && room.joinRequests && room.joinRequests.length ? `<div class="join-requests"><h3>Join requests</h3><ul>${room.joinRequests.map(r => `<li><span><strong>${esc(r.name)}</strong> <span class="meta">${r.ageCategory === 'teen' ? 'age 13 to 17' : '18+'}</span></span><span class="jr-actions"><button type="button" class="btn primary sm" data-approve="${esc(r.pid)}">Approve</button><button type="button" class="btn ghost sm" data-decline="${esc(r.pid)}">Decline</button></span></li>`).join('')}</ul></div>` : ''}
@@ -1249,7 +1254,12 @@ function paintRoom(room, isPoll) {
     const log2 = $('#msgLog');
     if (log2) { log2.insertAdjacentHTML('beforeend', msgBubble({ id: 'tmp', authorId: myPid(), authorName: myProfile().name, text, kind: 'user', ts: new Date().toISOString() })); log2.scrollTop = log2.scrollHeight; }
     try {
-      await api(`/api/rooms/${encodeURIComponent(room.id)}/messages`, { method: 'POST', body: JSON.stringify({ text, clientMsgId: uid(), authorId: myPid(), authorName: myProfile().name }) });
+      const out = await api(`/api/rooms/${encodeURIComponent(room.id)}/messages`, { method: 'POST', body: JSON.stringify({ text, clientMsgId: uid(), authorId: myPid(), authorName: myProfile().name }) });
+      // Demo profiles and KNOT AI answer in the same request, so their lines land without a poll.
+      if (log2 && out && Array.isArray(out.replies) && out.replies.length) {
+        log2.insertAdjacentHTML('beforeend', out.replies.map(msgBubble).join(''));
+        log2.scrollTop = log2.scrollHeight;
+      }
     } catch (ex) {
       if (errBox) { errBox.innerHTML = icon.alert + `<span>${esc(ex.message)}</span>`; errBox.hidden = false; }
     }
@@ -1314,6 +1324,8 @@ function paintRoom(room, isPoll) {
 function msgBubble(x) {
   const mine = x.you !== undefined ? x.you : !!(x.authorId && x.authorId === myPid());
   if (x.kind === 'assistant') return `<div class="bubble bot ai">${markImg(26)}<div><span class="who">KNOT AI</span>${esc(x.text)}<span class="when">${esc(fmtTime(x.ts))}</span></div></div>`;
+  // A fictional demo profile: never dressed up as a real member, always tagged.
+  if (x.kind === 'demo') return `<div class="bubble them demo"><span class="who">${esc(x.authorName)}<span class="demo-tag">Demo</span></span>${esc(x.text)}<span class="when">${esc(fmtTime(x.ts))}</span></div>`;
   return `<div class="bubble ${mine ? 'me' : 'them'}"><span class="who">${esc(x.authorName)}</span>${esc(x.text)}<span class="when">${esc(fmtTime(x.ts))}</span></div>`;
 }
 function copyText(t) {

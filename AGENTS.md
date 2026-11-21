@@ -7,13 +7,17 @@ Project: KNOT, an ITKAN hackathon app. Vanilla Node server (zero framework) + va
 - `server.js` : static files + JSON API. Same `handler` is reused by `api/[...path].js` on Vercel.
 - `lib/match.js` : deterministic matcher (keyword rules + constraints). Deliberately NOT an LLM; reasons must stay traceable to stored profile fields.
 - `lib/store.js` : storage dispatcher. `DATABASE_URL` set → `lib/store-pg.js` (shared Postgres/Supabase, schema auto-created); otherwise `lib/store-json.js` (local file `data/db.json`, `KNOT_DB_PATH` overrides for tests).
+- `lib/demo.js` : the fictional demo profiles talking in a sandbox group. The server picks the speaker and
+  writes the line (AI when configured, otherwise a local line built only from the stored demo profile);
+  these messages are stored with `kind: 'demo'` and always shown with a Demo tag.
 - `lib/session.js` logic lives in `server.js`: anonymous HttpOnly cookie (`knot_sid`). The server stamps message authors and room ownership; clients cannot claim identities.
 - `public/app.js` : the whole SPA (hash routing: `#/`, `#/finder`, `#/groups`, `#/room/:id`, `#/join/:code`). If `GET /api/status` says `persistent: false`, it keeps groups in localStorage instead (Vercel without a database).
 
 ## Invariants (do not break)
 
 - Message author identity comes from the session, never from the request body.
-- Fictional demo profiles must stay tagged `demo: true` in room member payloads.
+- Fictional demo profiles must stay tagged `demo: true` in room member payloads, and anything they say
+  must stay tagged `kind: 'demo'` in messages. They never pass for real members.
 - Matching explanations must cite real stored fields; no invented availability, no compatibility percentages.
 - All visible UI copy avoids em dashes; the brand palette lives in `public/styles.css` CSS variables.
 - `npm test` must pass before pushing. `npm run lint` for syntax.

@@ -10,6 +10,7 @@ const crypto = require('crypto');
 require('./lib/env');
 const store = require('./lib/store');
 const { finderTurn, helpTurn, interpretGoal, roomAssistant } = require('./lib/ai');
+const { demoReply } = require('./lib/demo');
 const llm = require('./lib/llm');
 const { examplesFor } = require('./lib/examples');
 const guide = require('./lib/guide');
@@ -552,19 +553,30 @@ async function api(req, res, url) {
         return send(res, 422, { error: 'KNOT held this message for review. A group moderator will look at it. If you think this is a mistake, you can report the issue to the organizer instead.', held: true });
       }
       // The author is always this session's principal; anything the client claims about itself is
-      // ignored. "kind" too: only the /askknot and ai_mode paths above ever write an assistant message.
+      // ignored. "kind" too: only the /askknot, demo-profile and ai_mode paths ever write anything
+      // other than a member's own message.
       const msg = await store.addMessage(room, {
         userId: user2.accountId ? null : user2.id, accountId: user2.accountId || null,
         authorName: user2.name, text, clientMsgId: str(b.clientMsgId, 60) || null, kind: 'user'
       });
+      const replies = [];
+      // The fictional demo profiles answer, so a sandbox group is a chat and not a dead room. The
+      // server picks who speaks and writes the line, and it is stored as kind 'demo' so the room
+      // can label it. The client never authors these.
+      if (!msg.duplicate && (room.demoMembers || []).length) {
+        try {
+          const out = await demoReply({ room: { ...room, messages: [...(room.messages || []), msg] }, lastText: text });
+          if (out && out.text) replies.push(await store.addMessage(room, { authorName: out.name, text: out.text, kind: 'demo' }));
+        } catch { /* the demo is optional; the member message already posted */ }
+      }
       // ai_mode 'on': after each member message, KNOT AI posts one short reply (never as a human).
       if (room.aiMode === 'on' && !msg.duplicate) {
         try {
           const out = await roomAssistant({ room, meProfile: null, question: 'Respond briefly to the latest message and move the group forward.', history: (room.messages || []).slice(-6).map(x => ({ role: x.kind === 'assistant' ? 'assistant' : 'user', content: x.text })) });
-          await store.addMessage(room, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' });
+          replies.push(await store.addMessage(room, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' }));
         } catch { /* AI is optional; the member message already posted */ }
       }
-      return send(res, 201, { message: msg });
+      return send(res, 201, { message: msg, replies });
     }
     if (m === 'POST' && parts[2] === 'assist') {
       const pub = publicRoom(room, false, user2);

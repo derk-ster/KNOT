@@ -145,6 +145,36 @@ test('messages: author stamped by server, client claims ignored', async () => {
   assert.equal(bad.status, 400, 'empty messages rejected');
 });
 
+test('demo profiles answer in a sandbox group, always tagged demo', async () => {
+  const j = jar();
+  await post('/api/session', {}, j);
+  const { room } = await (await post('/api/rooms', { requestId: 'req-bot', title: 'Chess night', goal: 'Start a chess club in Plano.', memberIds: ['kai-nakamura', 'maya-okafor'] }, j)).json();
+  const r = await post(`/api/rooms/${room.id}/messages`, { text: 'Hi everyone, when should we meet?' }, j);
+  assert.equal(r.status, 201);
+  const { replies } = await r.json();
+  assert.ok(Array.isArray(replies) && replies.length === 1, 'exactly one demo profile answers');
+  const bot = replies[0];
+  assert.equal(bot.kind, 'demo', 'the reply is stored as a demo message');
+  assert.ok(room.members.some(m => m.demo && m.name === bot.authorName), 'the speaker is one of the room demo profiles');
+  assert.ok(bot.text.length > 10, 'the reply says something');
+  const list = (await (await get(`/api/rooms/${room.id}/messages`, j)).json()).messages;
+  assert.ok(list.some(m => m.id === bot.id && m.kind === 'demo'), 'the demo line is persisted with its tag');
+  const r2 = await post(`/api/rooms/${room.id}/messages`, { text: 'I can bring a board.' }, j);
+  const { replies: second } = await r2.json();
+  assert.equal(second.length, 1);
+  assert.notEqual(second[0].authorName, bot.authorName, 'the other demo profile takes the next turn');
+});
+
+test('a group with no demo profiles gets no reply on the member behalf', async () => {
+  const j = jar();
+  await signup(j, { name: 'Real Owner' });
+  const { room } = await (await post('/api/rooms', { requestId: 'req-real', title: 'Real group', goal: 'A real group with real people.', memberIds: [] }, j)).json();
+  const r = await post(`/api/rooms/${room.id}/messages`, { text: 'hello' }, j);
+  assert.equal(r.status, 201);
+  const body = await r.json();
+  assert.deepEqual(body.replies, [], 'no demo members means no demo reply');
+});
+
 test('duplicate send with the same clientMsgId collapses to one message', async () => {
   const j = jar();
   await post('/api/session', {}, j);
