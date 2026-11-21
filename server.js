@@ -10,6 +10,8 @@ const groq = require('./lib/groq');
 const { finderTurn, helpTurn } = require('./lib/ai');
 const { examplesFor } = require('./lib/examples');
 const guide = require('./lib/guide');
+const { mapSkill } = require('./lib/skillmap');
+const { parseGoal } = require('./lib/match');
 const { profiles, SKILLS, SKILL_BY_ID, matchGoal, buildAssist, cap } = require('./lib/match');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -29,6 +31,9 @@ function send(res, code, body) {
   res.end(data);
 }
 function readBody(req) {
+  if (req.body !== undefined && req.body !== null && !(req.body instanceof Buffer)) { // Vercel pre-parses JSON
+    try { return Promise.resolve(typeof req.body === 'string' ? (req.body ? JSON.parse(req.body) : {}) : req.body); } catch { return Promise.reject(new Error('Invalid JSON')); }
+  }
   return new Promise((resolve, reject) => {
     let size = 0; const chunks = [];
     req.on('data', c => { size += c.length; if (size > 64 * 1024) { reject(new Error('Request too large')); req.destroy(); } else chunks.push(c); });
@@ -55,7 +60,23 @@ async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // after "api"
   const m = req.method;
 
-  if (m === 'GET' && parts[0] === 'status') return send(res, 200, { matcher: 'local-rules', ai: groq.enabled(), aiModels: groq.enabled() ? groq.MODELS : null, storage: 'data/db.json', profiles: profiles.length });
+  if (m === 'GET' && parts[0] === 'status') return send(res, 200, { matcher: 'local-rules', ai: groq.enabled(), aiModels: groq.enabled() ? groq.MODELS : null, storage: process.env.VERCEL ? 'browser' : 'data/db.json', persistent: !process.env.VERCEL, profiles: profiles.length });
+
+  if (m === 'POST' && parts[0] === 'skills' && parts[1] === 'map') {
+    const b = await readBody(req); const text = str(b.text, 60);
+    if (!text) return send(res, 400, { error: 'Type a skill or hobby first.' });
+    const r = await mapSkill(text);
+    return send(res, 200, { ...r, labels: r.ids.map(id => SKILL_BY_ID[id].label) });
+  }
+  if (m === 'POST' && parts[0] === 'members') { // stateless snapshots, used when groups live in the browser
+    const b = await readBody(req);
+    return send(res, 200, { members: [...new Set(Array.isArray(b.ids) ? b.ids : [])].slice(0, 5).map(id => profiles.find(p => p.id === id)).filter(Boolean).map(memberSnapshot) });
+  }
+  if (m === 'POST' && parts[0] === 'assist') {
+    const b = await readBody(req); const r = b.room || {};
+    if (!Array.isArray(r.members) || !r.members.length) return send(res, 400, { error: 'Open a group first.' });
+    return send(res, 200, buildAssist({ goal: str(r.goal, 500), members: r.members.slice(0, 6) }));
+  }
 
   if (m === 'POST' && parts[0] === 'ai') {
     if (!limited(req)) return send(res, 429, { error: 'Slow down a little and try again in a minute.' });
@@ -83,7 +104,11 @@ async function api(req, res, url) {
     if (!goal) return send(res, 400, { error: 'Add a goal first.' });
     const me = b.me || {};
     const clean = { skills: (Array.isArray(me.skills) ? me.skills : []).filter(id => SKILL_IDS.has(id)), availability: (Array.isArray(me.availability) ? me.availability : []).map(d => str(d, 12).toLowerCase()).slice(0, 7) };
-    const out = matchGoal({ goal, me: clean, relaxed: Array.isArray(b.relaxed) ? b.relaxed.slice(0, 5) : [] });
+    let extraNeeds = [], mapped = null;
+    const pg = parseGoal(goal, clean);
+    if (!pg.needs.length && !pg.topics.length) { mapped = await mapSkill(goal); extraNeeds = mapped.ids; }
+    const out = matchGoal({ goal, me: clean, relaxed: Array.isArray(b.relaxed) ? b.relaxed.slice(0, 5) : [], extraNeeds });
+    if (mapped && mapped.ids.length && !mapped.ids.includes('anything')) out.notice = `KNOT read that as ${mapped.ids.map(id => SKILL_BY_ID[id].label).join(' and ')}, the closest thing it knows.`;
     out.next = guide.fromMatch({ goal, hasProfile: clean.skills.length > 0, results: out.results, empty: out.empty });
     return send(res, 200, out);
   }
@@ -139,7 +164,7 @@ function serveStatic(req, res, url) {
   });
 }
 
-const server = http.createServer(async (req, res) => {
+const handler = async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   try {
     if (url.pathname.startsWith('/api/')) await api(req, res, url);
@@ -148,7 +173,10 @@ const server = http.createServer(async (req, res) => {
   } catch (e) {
     if (!res.headersSent) send(res, 400, { error: e.message || 'Something went wrong.' });
   }
-});
+};
+module.exports = { handler };
+if (require.main !== module) return;
+const server = http.createServer(handler);
 server.on('error', e => {
   if (e.code === 'EADDRINUSE') console.error(`Port ${PORT} is already in use. KNOT may already be running at http://localhost:${PORT}.\nTo stop it: pkill -f "node server.js"   Or use another port: PORT=4000 node server.js`);
   else console.error(e.message);

@@ -14,9 +14,17 @@ const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'
 const CITIES = ['Plano', 'Dallas', 'Frisco', 'Richardson', 'Allen', 'McKinney', 'Irving', 'Garland', 'Austin', 'Houston'];
 const EXAMPLES = [
   'I can shoot a short film in Plano this Saturday and need someone who can edit.',
+  'I want to find people to play board games in Plano this Friday.',
   'I want to build a study app for our hackathon online and need a designer.'
 ];
-const PLACEHOLDER = 'I want to make a short film in Plano, and I need someone who can edit.';
+const PLACEHOLDERS = [
+  'I want to make a short film in Plano, and I need someone who can edit.',
+  'I’m looking for a hiking buddy this Saturday.',
+  'I want to start a band and need a drummer.',
+  'Let’s run a 5K together in Frisco this Sunday.',
+  'I’m building a game and need someone who can draw.'
+];
+const PLACEHOLDER = PLACEHOLDERS[Math.floor(Math.random() * PLACEHOLDERS.length)];
 
 const icon = {
   check: '<svg class="ic" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5l4 4 8-9"/></svg>',
@@ -44,7 +52,45 @@ const state = {
 };
 store.set('knot.clientId', state.clientId);
 
+let localRooms = false;   // true on serverless hosts: groups and chat live in this browser
 async function api(path, opts = {}) {
+  if (localRooms && path.startsWith('/api/rooms')) return localRoomApi(path, opts);
+  return apiRaw(path, opts);
+}
+async function localRoomApi(path, opts) {
+  const method = (opts.method || 'GET').toUpperCase(), url = new URL(path, location.origin);
+  const parts = url.pathname.split('/').filter(Boolean).slice(2), rooms = store.get('knot.rooms', []);
+  const save = () => store.set('knot.rooms', rooms);
+  const body = () => { try { return JSON.parse(opts.body || '{}'); } catch { return {}; } };
+  const brief = ({ messages, ...r }) => ({ ...r, messageCount: messages.length, lastMessageAt: messages.length ? messages[messages.length - 1].ts : null });
+  if (!parts.length && method === 'GET') {
+    const cid = url.searchParams.get('clientId');
+    return { rooms: rooms.filter(r => r.clientId === cid).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(brief) };
+  }
+  if (!parts.length && method === 'POST') {
+    const b = body(), dup = rooms.find(r => r.requestId === b.requestId);
+    if (dup) return { room: dup, duplicate: true };
+    if (!b.title || !b.goal) throw new Error('A group needs a name and a goal.');
+    const { members } = await apiRaw('/api/members', { method: 'POST', body: JSON.stringify({ ids: b.memberIds }) });
+    if (!members.length) throw new Error('Select at least one person for the group.');
+    const label = id => (state.skills.find(s => s.id === id) || { label: id }).label;
+    const owner = { id: b.clientId, name: b.ownerName, you: true, skillLabels: (b.ownerSkills || []).map(label), availabilityDays: null, availabilityText: 'You' };
+    const room = { id: uid(), requestId: b.requestId, clientId: b.clientId, title: b.title, goal: b.goal, ownerName: b.ownerName, createdAt: new Date().toISOString(), members: [owner, ...members], messages: [] };
+    rooms.push(room); save(); return { room };
+  }
+  const room = rooms.find(r => r.id === parts[0]);
+  if (!room) throw new Error('This group could not be found. It lives in the browser that created it. Open My groups to see the ones saved here.');
+  if (parts.length === 1) return { room, next: room.messages.length ? null : { target: 'assist' } };
+  if (parts[1] === 'messages') {
+    const b = body(), text = String(b.text || '').trim().slice(0, 2000);
+    if (!text) throw new Error('Type a message first.');
+    const message = { id: uid(), authorId: b.authorId, authorName: b.authorName || 'Someone', text, kind: b.kind === 'assistant' ? 'assistant' : 'user', ts: new Date().toISOString() };
+    room.messages.push(message); save(); return { message };
+  }
+  if (parts[1] === 'assist') return apiRaw('/api/assist', { method: 'POST', body: JSON.stringify({ room: { goal: room.goal, members: room.members } }) });
+  throw new Error('Not found');
+}
+async function apiRaw(path, opts = {}) {
   const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
   let d = null; try { d = await r.json(); } catch { /* non-json */ }
   if (!r.ok) throw new Error((d && d.error) || `Request failed (${r.status})`);
@@ -159,7 +205,7 @@ function renderHome(initial) {
         <form id="goalForm" class="goal-form" novalidate>
           <textarea id="goal" rows="2" maxlength="500" autocomplete="off" spellcheck="true" aria-labelledby="h1" aria-describedby="goalHelp goalErr" placeholder="${esc(PLACEHOLDER)}"></textarea>
           <div class="goal-row">
-            <p id="goalHelp" class="hint">Say what, where and when. KNOT looks for people with the skills you need.</p>
+            <p id="goalHelp" class="hint">Work project, game night or just for fun: say what, where and when.</p>
             <button class="btn primary" id="findBtn" type="submit"><span class="btn-label">Find my people</span></button>
           </div>
         </form></div>
@@ -169,7 +215,7 @@ function renderHome(initial) {
     </section>
 
     <section id="startGuide" class="guide" aria-labelledby="gdh">
-      <h2 id="gdh">New here? Three steps</h2>
+      <h2 id="gdh">New here? Three quick steps</h2>
       <ol class="steps">
         <li><span class="n" aria-hidden="true">1</span><div><strong>Say what you want to do</strong><p>Type it in the box above: what, where and when. Not sure how to word it? Tap an example, or chat it out in the <a href="#/finder">AI Finder</a>.</p></div></li>
         <li><span class="n" aria-hidden="true">2</span><div><strong>Pick your people</strong><p>KNOT shows up to three matches and says exactly why. Press <b>Add to group</b> on the ones you like.</p></div></li>
@@ -184,6 +230,7 @@ function renderHome(initial) {
         <span class="badge neutral" title="No AI model is connected. Matches come from KNOT's local rules.">Local matcher</span>
       </div>
       <div id="interp" class="interp" aria-label="What KNOT understood"></div>
+      <p id="notice" class="notice" hidden></p>
       <p id="pickHint" class="pick-hint">Next step: press <strong>Add to group</strong> on the people you want, then <strong>Create group</strong>.</p>
       <p id="matchErr" class="msg err" role="alert" hidden></p>
       <ul id="results" class="results"></ul>
@@ -286,6 +333,7 @@ function renderResults(resp, restoring) {
   reconcile(resp.results, restoring);
 
   const ph = $('#pickHint'); if (ph) ph.hidden = !resp.results.length;
+  const nt = $('#notice'); if (nt) { nt.hidden = !resp.notice; nt.textContent = resp.notice || ''; }
   const empty = $('#empty');
   if (resp.empty) {
     empty.hidden = false;
@@ -385,13 +433,16 @@ function openProfile(opts = {}) {
     <div class="dlg-head">
       <img src="assets/art/artists_palette.png" width="96" height="73" alt="" class="dlg-art">
       <div><h2 id="profileTitle">${state.me ? 'Your profile' : 'A little about you'}</h2>
-      <p class="hint">${opts.thenSearch ? 'Your goal is saved. Add your name and skills, then we’ll find your people.' : 'Only your name and skills are needed. No email, no account.'}</p></div>
+      <p class="hint">${opts.thenSearch ? 'Your goal is saved. Add your name and skills, then we’ll find your people.' : 'Just your name and one skill or hobby. No email, no account.'}</p></div>
     </div>
     <div class="field"><label for="pName">Display name <span class="req">(required)</span></label>
       <input id="pName" type="text" maxlength="40" autocomplete="nickname" value="${esc(me.name)}" aria-describedby="pNameErr">
       <p class="msg err" id="pNameErr" role="alert" hidden></p></div>
-    <fieldset class="field"><legend>Skills you can offer <span class="req">(pick at least one)</span></legend>
+    <fieldset class="field"><legend>Skills or hobbies you can bring <span class="req">(pick at least one)</span></legend>
       <div class="chips" id="pSkills">${state.skills.map(s => `<label class="toggle"><input type="checkbox" value="${s.id}" ${me.skills.includes(s.id) ? 'checked' : ''}><span>${esc(s.label)}</span></label>`).join('')}</div>
+      <div class="custom-skill"><label for="pCustom">Something else? Type any skill or hobby</label>
+        <input id="pCustom" type="text" maxlength="40" autocomplete="off" value="${esc(me.custom ? me.custom.text : '')}" placeholder="e.g. ukulele, speedrunning, sourdough, public art" aria-describedby="pCustomNote">
+        <p class="hint" id="pCustomNote">${me.custom && me.custom.labels && me.custom.labels.length ? `KNOT treats “${esc(me.custom.text)}” like ${esc(me.custom.labels.join(' and '))}.` : 'Work, school or just for fun. KNOT finds the closest match for it.'}</p></div>
       <p class="msg err" id="pSkillsErr" role="alert" hidden></p></fieldset>
     <details class="optional" ${state.me && (me.city || me.interests || me.availability.length) ? 'open' : ''}><summary>Optional details</summary>
       <div class="field"><label for="pInterests">Interests</label><input id="pInterests" type="text" maxlength="120" value="${esc(me.interests)}" placeholder="e.g. short films, jazz"></div>
@@ -406,17 +457,29 @@ function openProfile(opts = {}) {
   d.showModal();
   (opts.focusSkills ? $('#pSkills input') : $('#pName')).focus();
   $('#pCancel').addEventListener('click', () => d.close());
-  $('#profileForm').addEventListener('submit', e => {
+  $('#profileForm').addEventListener('submit', async e => {
     e.preventDefault();
-    const name = $('#pName').value.trim(), skills = $$('#pSkills input:checked').map(i => i.value);
+    const name = $('#pName').value.trim(), skills = $$('#pSkills input:checked').map(i => i.value), ctext = $('#pCustom').value.trim();
     let bad = false;
     const nerr = $('#pNameErr'), serr = $('#pSkillsErr');
-    nerr.hidden = !!name; serr.hidden = skills.length > 0;
+    nerr.hidden = !!name; serr.hidden = skills.length > 0 || !!ctext;
     if (!name) { nerr.innerHTML = icon.alert + '<span>Enter a display name so your group knows who you are.</span>'; bad = true; $('#pName').setAttribute('aria-invalid', 'true'); }
-    if (!skills.length) { serr.innerHTML = icon.alert + '<span>Pick at least one skill you can offer.</span>'; if (!bad) $('#pSkills input').focus(); bad = true; }
+    if (!skills.length && !ctext) { serr.innerHTML = icon.alert + '<span>Pick a skill or hobby above, or type your own in the box below them.</span>'; if (!bad) $('#pSkills input').focus(); bad = true; }
     if (!name) $('#pName').focus();
     if (bad) return;
-    state.me = { name, skills, interests: $('#pInterests').value.trim(), city: $('#pCity').value, availability: $$('#pDays input:checked').map(i => i.value), mode: ($('input[name=pMode]:checked') || { value: 'both' }).value };
+    let custom = null;
+    if (ctext) {
+      if (state.me && state.me.custom && state.me.custom.text === ctext) custom = state.me.custom;
+      else {
+        const sb = $('#profileForm button[type=submit]'); sb.disabled = true; sb.textContent = 'Matching your skill…';
+        try { const r = await api('/api/skills/map', { method: 'POST', body: JSON.stringify({ text: ctext }) }); custom = { text: ctext, ids: r.ids, labels: r.labels, note: r.note || '' }; }
+        catch { /* keep going without a mapping */ }
+        sb.disabled = false; sb.textContent = opts.thenSearch ? 'Save and find my people' : 'Save profile';
+      }
+      if (custom) custom.ids.forEach(id => { if (!skills.includes(id)) skills.push(id); });
+    }
+    if (!skills.length) { serr.innerHTML = icon.alert + `<span>We couldn’t match “${esc(ctext)}” to anything yet. Try another word, or pick a skill above.</span>`; serr.hidden = false; $('#pCustom').focus(); return; }
+    state.me = { name, skills, custom, interests: $('#pInterests').value.trim(), city: $('#pCity').value, availability: $$('#pDays input:checked').map(i => i.value), mode: ($('input[name=pMode]:checked') || { value: 'both' }).value };
     store.set('knot.me', state.me); state.respKey = null; if ($('#examples')) refreshExamples();
     d.close(); paintHeader();
     if (opts.thenSearch || (opts.rerun && state.goal.trim())) findPeople(true); else say('Profile saved.');
@@ -493,7 +556,7 @@ function playKnot(room) {
 // ---------- AI FINDER ----------
 state.finder = { items: [], busy: false };
 const FINDER_HELLO = 'Hi! Tell me what you want to do and who you need. I’ll find people from KNOT’s community.';
-const FINDER_IDEAS = ['I need someone to edit my short film', 'I want a study partner for coding, online', 'Looking for a basketball group in Frisco'];
+const FINDER_IDEAS = ['I need someone to edit my short film', 'I want a hiking buddy this weekend', 'Looking for a board game night in Plano'];
 
 function finderCard(r) {
   const flag = r.flags && r.flags[0];
@@ -540,7 +603,7 @@ function finderOpen(i) {
 async function renderFinder() {
   $('#main').innerHTML = `<section class="finder" aria-labelledby="fh">
     <h1 id="fh" tabindex="-1">AI Finder</h1>
-    <p class="lead">A quick chat to work out who you need. Matches come from KNOT’s people and rules, never from the AI’s imagination.</p>
+    <p class="lead">Chat about what you want to do, for work or for fun. I’ll find people who’d be into it.</p>
     <div id="fOff" class="msg warn" hidden></div>
     <div class="chat" id="fLog" role="log" aria-live="polite" aria-label="Conversation"></div>
     <div class="ideas" id="fIdeas"></div>
@@ -683,7 +746,8 @@ async function renderRoom(id) {
 async function boot() {
   $('#profileBtn').addEventListener('click', () => openProfile());
   ['profileDialog', 'createDialog'].forEach(id => { const d = $('#' + id); d.addEventListener('click', e => { if (e.target === d) d.close(); }); });
-  try { state.skills = (await api('/api/skills')).skills; } catch { state.skills = []; }
+  try { const s = await apiRaw('/api/status'); localRooms = s.persistent === false; } catch { /* older server */ }
+  for (let i = 0; i < 3 && !state.skills.length; i++) { try { state.skills = (await apiRaw('/api/skills')).skills; } catch { await new Promise(r => setTimeout(r, 400)); } }
   route(true);
 }
 boot();

@@ -446,3 +446,11 @@ input.next { outline: 3px solid color-mix(in srgb, var(--violet) 40%, transparen
 .ai-badge { margin-left: 8px; font-size: .68rem; font-weight: 800; letter-spacing: .08em; background: var(--violet); color: #fff; border-radius: 6px; padding: 2px 7px; }
 .help-panel header .grow { flex: 1; }
 @media (max-width: 560px) { .help-fab span { display: inline; } .help-fab { padding: 0 14px 0 12px; } }
+
+/* notice + custom skill */
+.notice { margin: -4px 0 16px; padding: 10px 14px; border-radius: 14px; background: var(--mint); color: var(--teal); font-weight: 500; font-size: .95rem; }
+.custom-skill { margin-top: 14px; }
+.custom-skill label { display: block; font-weight: 600; margin-bottom: 6px; }
+.custom-skill input { width: 100%; min-height: 48px; border: 1.5px solid var(--line); border-radius: 14px; padding: 0 14px; background: #fff; }
+.custom-skill input:focus { outline: 3px solid color-mix(in srgb, var(--violet) 35%, transparent); border-color: var(--violet); }
+.custom-skill .hint { margin-top: 6px; }

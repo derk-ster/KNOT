@@ -1,114 +1,1587 @@
 [
-  {
-    "id": "maya-okafor", "name": "Maya Okafor", "city": "Plano", "mode": "both",
-    "availability": { "days": ["saturday", "sunday"], "note": "Free all weekend" },
-    "skills": [{ "id": "video-editing", "note": "DaVinci Resolve" }, { "id": "sound-design", "note": "dialogue cleanup" }],
-    "goals": ["film", "music"], "interests": ["short films", "jazz", "color grading"],
-    "bio": "Edits student shorts and loves tight, fast cuts."
+ {
+  "id": "maya-okafor",
+  "name": "Maya Okafor",
+  "city": "Plano",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday"
+   ],
+   "note": "Free all weekend"
   },
-  {
-    "id": "theo-nguyen", "name": "Theo Nguyen", "city": "Dallas", "mode": "in-person",
-    "availability": { "days": ["saturday"], "note": "Saturdays only" },
-    "skills": [{ "id": "video-editing", "note": "Premiere Pro" }, { "id": "filming", "note": "Sony A7 IV" }],
-    "goals": ["film"], "interests": ["documentaries", "street photography"],
-    "bio": "Documentary editor who prefers working side by side."
+  "skills": [
+   {
+    "id": "video-editing",
+    "note": "DaVinci Resolve"
+   },
+   {
+    "id": "sound-design",
+    "note": "dialogue cleanup"
+   }
+  ],
+  "goals": [
+   "film",
+   "music"
+  ],
+  "interests": [
+   "short films",
+   "jazz",
+   "color grading"
+  ],
+  "bio": "Edits student shorts and loves tight, fast cuts."
+ },
+ {
+  "id": "theo-nguyen",
+  "name": "Theo Nguyen",
+  "city": "Dallas",
+  "mode": "in-person",
+  "availability": {
+   "days": [
+    "saturday"
+   ],
+   "note": "Saturdays only"
   },
-  {
-    "id": "priya-raman", "name": "Priya Raman", "city": "Plano", "mode": "online",
-    "availability": null,
-    "skills": [{ "id": "video-editing", "note": "Final Cut Pro" }, { "id": "marketing", "note": "YouTube channels" }],
-    "goals": ["film", "podcast"], "interests": ["YouTube", "storytelling"],
-    "bio": "Edits remotely and has not shared her schedule yet."
+  "skills": [
+   {
+    "id": "video-editing",
+    "note": "Premiere Pro"
+   },
+   {
+    "id": "filming",
+    "note": "Sony A7 IV"
+   }
+  ],
+  "goals": [
+   "film"
+  ],
+  "interests": [
+   "documentaries",
+   "street photography"
+  ],
+  "bio": "Documentary editor who prefers working side by side."
+ },
+ {
+  "id": "priya-raman",
+  "name": "Priya Raman",
+  "city": "Plano",
+  "mode": "online",
+  "availability": null,
+  "skills": [
+   {
+    "id": "video-editing",
+    "note": "Final Cut Pro"
+   },
+   {
+    "id": "marketing",
+    "note": "YouTube channels"
+   }
+  ],
+  "goals": [
+   "film",
+   "podcast"
+  ],
+  "interests": [
+   "YouTube",
+   "storytelling"
+  ],
+  "bio": "Edits remotely and has not shared her schedule yet."
+ },
+ {
+  "id": "jordan-ellis",
+  "name": "Jordan Ellis",
+  "city": "Frisco",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "friday",
+    "sunday"
+   ],
+   "note": "Fridays and Sundays"
   },
-  {
-    "id": "jordan-ellis", "name": "Jordan Ellis", "city": "Frisco", "mode": "both",
-    "availability": { "days": ["friday", "sunday"], "note": "Fridays and Sundays" },
-    "skills": [{ "id": "video-editing", "note": "CapCut, short-form" }, { "id": "marketing", "note": "TikTok growth" }],
-    "goals": ["film", "social"], "interests": ["short-form video", "branding"],
-    "bio": "Cuts punchy short-form video for student clubs."
+  "skills": [
+   {
+    "id": "video-editing",
+    "note": "CapCut, short-form"
+   },
+   {
+    "id": "marketing",
+    "note": "TikTok growth"
+   }
+  ],
+  "goals": [
+   "film",
+   "social"
+  ],
+  "interests": [
+   "short-form video",
+   "branding"
+  ],
+  "bio": "Cuts punchy short-form video for student clubs."
+ },
+ {
+  "id": "sam-alvarez",
+  "name": "Sam Alvarez",
+  "city": "Richardson",
+  "mode": "in-person",
+  "availability": {
+   "days": [
+    "saturday"
+   ],
+   "note": "Free Saturday afternoons"
   },
-  {
-    "id": "sam-alvarez", "name": "Sam Alvarez", "city": "Richardson", "mode": "in-person",
-    "availability": { "days": ["saturday"], "note": "Free Saturday afternoons" },
-    "skills": [{ "id": "filming", "note": "Sony FX3, gimbal work" }, { "id": "photography", "note": "portraits" }],
-    "goals": ["film", "photography"], "interests": ["cinematography", "portraits"],
-    "bio": "Owns a cinema camera and a gimbal."
+  "skills": [
+   {
+    "id": "filming",
+    "note": "Sony FX3, gimbal work"
+   },
+   {
+    "id": "photography",
+    "note": "portraits"
+   }
+  ],
+  "goals": [
+   "film",
+   "photography"
+  ],
+  "interests": [
+   "cinematography",
+   "portraits"
+  ],
+  "bio": "Owns a cinema camera and a gimbal."
+ },
+ {
+  "id": "lena-kowalski",
+  "name": "Lena Kowalski",
+  "city": "Plano",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday"
+   ],
+   "note": "Weekends"
   },
-  {
-    "id": "lena-kowalski", "name": "Lena Kowalski", "city": "Plano", "mode": "both",
-    "availability": { "days": ["saturday", "sunday"], "note": "Weekends" },
-    "skills": [{ "id": "scriptwriting", "note": "short scripts" }, { "id": "acting", "note": "theatre background" }],
-    "goals": ["film"], "interests": ["theatre", "comedy"],
-    "bio": "Writes five-minute scripts and acts in them."
+  "skills": [
+   {
+    "id": "scriptwriting",
+    "note": "short scripts"
+   },
+   {
+    "id": "acting",
+    "note": "theatre background"
+   }
+  ],
+  "goals": [
+   "film"
+  ],
+  "interests": [
+   "theatre",
+   "comedy"
+  ],
+  "bio": "Writes five-minute scripts and acts in them."
+ },
+ {
+  "id": "devon-brooks",
+  "name": "Devon Brooks",
+  "city": "Plano",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday"
+   ],
+   "note": "Free all weekend"
   },
-  {
-    "id": "devon-brooks", "name": "Devon Brooks", "city": "Plano", "mode": "both",
-    "availability": { "days": ["saturday", "sunday"], "note": "Free all weekend" },
-    "skills": [{ "id": "web-dev", "note": "React, Node" }, { "id": "ui-design", "note": "Figma" }],
-    "goals": ["app", "hackathon"], "interests": ["hackathons", "education tech"],
-    "bio": "Full-stack builder who has shipped three hackathon demos."
+  "skills": [
+   {
+    "id": "web-dev",
+    "note": "React, Node"
+   },
+   {
+    "id": "ui-design",
+    "note": "Figma"
+   }
+  ],
+  "goals": [
+   "app",
+   "hackathon"
+  ],
+  "interests": [
+   "hackathons",
+   "education tech"
+  ],
+  "bio": "Full-stack builder who has shipped three hackathon demos."
+ },
+ {
+  "id": "aiko-tanaka",
+  "name": "Aiko Tanaka",
+  "city": "Dallas",
+  "mode": "online",
+  "availability": {
+   "days": [
+    "saturday"
+   ],
+   "note": "Saturdays"
   },
-  {
-    "id": "aiko-tanaka", "name": "Aiko Tanaka", "city": "Dallas", "mode": "online",
-    "availability": { "days": ["saturday"], "note": "Saturdays" },
-    "skills": [{ "id": "backend-ml", "note": "Python, APIs" }, { "id": "web-dev", "note": "Flask" }],
-    "goals": ["app", "hackathon"], "interests": ["machine learning", "data"],
-    "bio": "Backend and data person who works remotely."
+  "skills": [
+   {
+    "id": "backend-ml",
+    "note": "Python, APIs"
+   },
+   {
+    "id": "web-dev",
+    "note": "Flask"
+   }
+  ],
+  "goals": [
+   "app",
+   "hackathon"
+  ],
+  "interests": [
+   "machine learning",
+   "data"
+  ],
+  "bio": "Backend and data person who works remotely."
+ },
+ {
+  "id": "iris-vega",
+  "name": "Iris Vega",
+  "city": "Austin",
+  "mode": "online",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday"
+   ],
+   "note": "Weekends"
   },
-  {
-    "id": "iris-vega", "name": "Iris Vega", "city": "Austin", "mode": "online",
-    "availability": { "days": ["saturday", "sunday"], "note": "Weekends" },
-    "skills": [{ "id": "ui-design", "note": "Figma prototypes" }, { "id": "illustration", "note": "vector art" }],
-    "goals": ["app", "game", "hackathon"], "interests": ["product design", "illustration"],
-    "bio": "Designs clean app screens and quick brand art."
+  "skills": [
+   {
+    "id": "ui-design",
+    "note": "Figma prototypes"
+   },
+   {
+    "id": "illustration",
+    "note": "vector art"
+   }
+  ],
+  "goals": [
+   "app",
+   "game",
+   "hackathon"
+  ],
+  "interests": [
+   "product design",
+   "illustration"
+  ],
+  "bio": "Designs clean app screens and quick brand art."
+ },
+ {
+  "id": "marcus-reed",
+  "name": "Marcus Reed",
+  "city": "Plano",
+  "mode": "in-person",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday"
+   ],
+   "note": "Weekend mornings"
   },
-  {
-    "id": "marcus-reed", "name": "Marcus Reed", "city": "Plano", "mode": "in-person",
-    "availability": { "days": ["saturday", "sunday"], "note": "Weekend mornings" },
-    "skills": [{ "id": "basketball", "note": "pickup point guard" }, { "id": "project-mgmt", "note": "runs a rec league" }],
-    "goals": ["basketball"], "interests": ["pickup games", "coaching"],
-    "bio": "Organizes weekend pickup games."
+  "skills": [
+   {
+    "id": "basketball",
+    "note": "pickup point guard"
+   },
+   {
+    "id": "project-mgmt",
+    "note": "runs a rec league"
+   }
+  ],
+  "goals": [
+   "basketball"
+  ],
+  "interests": [
+   "pickup games",
+   "coaching"
+  ],
+  "bio": "Organizes weekend pickup games."
+ },
+ {
+  "id": "imani-cole",
+  "name": "Imani Cole",
+  "city": "Frisco",
+  "mode": "both",
+  "availability": null,
+  "skills": [
+   {
+    "id": "vocals",
+    "note": "alto, harmonies"
+   },
+   {
+    "id": "music-production",
+    "note": "GarageBand"
+   }
+  ],
+  "goals": [
+   "music"
+  ],
+  "interests": [
+   "R&B",
+   "songwriting"
+  ],
+  "bio": "Sings and writes hooks; schedule not shared yet."
+ },
+ {
+  "id": "noah-fischer",
+  "name": "Noah Fischer",
+  "city": "Plano",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "friday",
+    "saturday"
+   ],
+   "note": "Friday and Saturday"
   },
-  {
-    "id": "imani-cole", "name": "Imani Cole", "city": "Frisco", "mode": "both",
-    "availability": null,
-    "skills": [{ "id": "vocals", "note": "alto, harmonies" }, { "id": "music-production", "note": "GarageBand" }],
-    "goals": ["music"], "interests": ["R&B", "songwriting"],
-    "bio": "Sings and writes hooks; schedule not shared yet."
+  "skills": [
+   {
+    "id": "music-production",
+    "note": "Ableton Live"
+   },
+   {
+    "id": "guitar",
+    "note": "electric and acoustic"
+   },
+   {
+    "id": "sound-design",
+    "note": "synths"
+   }
+  ],
+  "goals": [
+   "music",
+   "podcast"
+  ],
+  "interests": [
+   "lo-fi",
+   "indie rock"
+  ],
+  "bio": "Produces beats and plays guitar over them."
+ },
+ {
+  "id": "zara-hussain",
+  "name": "Zara Hussain",
+  "city": "Dallas",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "sunday"
+   ],
+   "note": "Sundays"
   },
-  {
-    "id": "noah-fischer", "name": "Noah Fischer", "city": "Plano", "mode": "both",
-    "availability": { "days": ["friday", "saturday"], "note": "Friday and Saturday" },
-    "skills": [{ "id": "music-production", "note": "Ableton Live" }, { "id": "guitar", "note": "electric and acoustic" }, { "id": "sound-design", "note": "synths" }],
-    "goals": ["music", "podcast"], "interests": ["lo-fi", "indie rock"],
-    "bio": "Produces beats and plays guitar over them."
+  "skills": [
+   {
+    "id": "podcasting",
+    "note": "host and interviewer"
+   },
+   {
+    "id": "marketing",
+    "note": "newsletters"
+   }
+  ],
+  "goals": [
+   "podcast"
+  ],
+  "interests": [
+   "interviews",
+   "local stories"
+  ],
+  "bio": "Hosts a campus podcast."
+ },
+ {
+  "id": "eli-park",
+  "name": "Eli Park",
+  "city": "Plano",
+  "mode": "online",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday"
+   ],
+   "note": "Weekends"
   },
-  {
-    "id": "zara-hussain", "name": "Zara Hussain", "city": "Dallas", "mode": "both",
-    "availability": { "days": ["sunday"], "note": "Sundays" },
-    "skills": [{ "id": "podcasting", "note": "host and interviewer" }, { "id": "marketing", "note": "newsletters" }],
-    "goals": ["podcast"], "interests": ["interviews", "local stories"],
-    "bio": "Hosts a campus podcast."
+  "skills": [
+   {
+    "id": "game-dev",
+    "note": "Unity"
+   },
+   {
+    "id": "illustration",
+    "note": "pixel art"
+   }
+  ],
+  "goals": [
+   "game",
+   "hackathon"
+  ],
+  "interests": [
+   "indie games",
+   "pixel art"
+  ],
+  "bio": "Builds small Unity games with pixel art."
+ },
+ {
+  "id": "rosa-mendes",
+  "name": "Rosa Mendes",
+  "city": "Richardson",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday"
+   ],
+   "note": "Saturdays"
   },
-  {
-    "id": "eli-park", "name": "Eli Park", "city": "Plano", "mode": "online",
-    "availability": { "days": ["saturday", "sunday"], "note": "Weekends" },
-    "skills": [{ "id": "game-dev", "note": "Unity" }, { "id": "illustration", "note": "pixel art" }],
-    "goals": ["game", "hackathon"], "interests": ["indie games", "pixel art"],
-    "bio": "Builds small Unity games with pixel art."
+  "skills": [
+   {
+    "id": "tutoring",
+    "note": "calculus and physics"
+   },
+   {
+    "id": "project-mgmt",
+    "note": "study schedules"
+   }
+  ],
+  "goals": [
+   "study"
+  ],
+  "interests": [
+   "math",
+   "study groups"
+  ],
+  "bio": "Tutors calculus and keeps study groups on schedule."
+ },
+ {
+  "id": "cam-whitaker",
+  "name": "Cam Whitaker",
+  "city": "Plano",
+  "mode": "in-person",
+  "availability": null,
+  "skills": [
+   {
+    "id": "robotics",
+    "note": "Arduino, 3D printing"
+   },
+   {
+    "id": "tutoring",
+    "note": "electronics basics"
+   }
+  ],
+  "goals": [
+   "robotics"
+  ],
+  "interests": [
+   "robot clubs",
+   "3D printing"
+  ],
+  "bio": "Builds Arduino robots; availability not shared yet."
+ },
+ {
+  "id": "kai-nakamura",
+  "name": "Kai Nakamura",
+  "city": "Plano",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday"
+   ],
+   "note": "Weekends"
   },
-  {
-    "id": "rosa-mendes", "name": "Rosa Mendes", "city": "Richardson", "mode": "both",
-    "availability": { "days": ["saturday"], "note": "Saturdays" },
-    "skills": [{ "id": "tutoring", "note": "calculus and physics" }, { "id": "project-mgmt", "note": "study schedules" }],
-    "goals": ["study"], "interests": ["math", "study groups"],
-    "bio": "Tutors calculus and keeps study groups on schedule."
+  "skills": [
+   {
+    "id": "gaming",
+    "note": "co-op shooters"
+   },
+   {
+    "id": "board-games",
+    "note": "Catan nights"
+   }
+  ],
+  "goals": [
+   "game",
+   "social"
+  ],
+  "interests": [
+   "co-op games",
+   "snacks"
+  ],
+  "bio": "Hosts game nights and never rage quits."
+ },
+ {
+  "id": "luna-reyes",
+  "name": "Luna Reyes",
+  "city": "Dallas",
+  "mode": "in-person",
+  "availability": {
+   "days": [
+    "friday",
+    "saturday"
+   ],
+   "note": "Fri and Sat nights"
   },
-  {
-    "id": "cam-whitaker", "name": "Cam Whitaker", "city": "Plano", "mode": "in-person",
-    "availability": null,
-    "skills": [{ "id": "robotics", "note": "Arduino, 3D printing" }, { "id": "tutoring", "note": "electronics basics" }],
-    "goals": ["robotics"], "interests": ["robot clubs", "3D printing"],
-    "bio": "Builds Arduino robots; availability not shared yet."
-  }
+  "skills": [
+   {
+    "id": "dance",
+    "note": "salsa and hip-hop"
+   },
+   {
+    "id": "fitness",
+    "note": "dance cardio"
+   }
+  ],
+  "goals": [
+   "dance",
+   "social"
+  ],
+  "interests": [
+   "salsa",
+   "concerts"
+  ],
+  "bio": "Will teach you a routine in ten minutes."
+ },
+ {
+  "id": "omar-haddad",
+  "name": "Omar Haddad",
+  "city": "Frisco",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "sunday"
+   ],
+   "note": "Sunday mornings"
+  },
+  "skills": [
+   {
+    "id": "basketball",
+    "note": "point guard"
+   },
+   {
+    "id": "fitness",
+    "note": "running"
+   }
+  ],
+  "goals": [
+   "basketball",
+   "fitness"
+  ],
+  "interests": [
+   "pickup hoops",
+   "5k runs"
+  ],
+  "bio": "Always has a ball in the trunk."
+ },
+ {
+  "id": "bea-lindqvist",
+  "name": "Bea Lindqvist",
+  "city": "Richardson",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "wednesday",
+    "thursday"
+   ],
+   "note": "Weeknights"
+  },
+  "skills": [
+   {
+    "id": "cooking",
+    "note": "baking"
+   },
+   {
+    "id": "crafts",
+    "note": "pottery"
+   }
+  ],
+  "goals": [
+   "food",
+   "art"
+  ],
+  "interests": [
+   "sourdough",
+   "ceramics"
+  ],
+  "bio": "Bakes for the whole floor."
+ },
+ {
+  "id": "tariq-bell",
+  "name": "Tariq Bell",
+  "city": "Plano",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday"
+   ],
+   "note": "Weekends"
+  },
+  "skills": [
+   {
+    "id": "hiking",
+    "note": "trail running"
+   },
+   {
+    "id": "travel",
+    "note": "road trips"
+   }
+  ],
+  "goals": [
+   "outdoors",
+   "travel"
+  ],
+  "interests": [
+   "trails",
+   "camping"
+  ],
+  "bio": "Knows every trailhead within two hours."
+ },
+ {
+  "id": "mei-chen",
+  "name": "Mei Chen",
+  "city": "Dallas",
+  "mode": "online",
+  "availability": {
+   "days": [
+    "monday",
+    "tuesday",
+    "wednesday"
+   ],
+   "note": "Early week evenings"
+  },
+  "skills": [
+   {
+    "id": "chess",
+    "note": "tournament player"
+   },
+   {
+    "id": "reading",
+    "note": "sci-fi"
+   }
+  ],
+  "goals": [
+   "game",
+   "reading"
+  ],
+  "interests": [
+   "openings",
+   "novels"
+  ],
+  "bio": "Will explain the fork you just fell for."
+ },
+ {
+  "id": "diego-salazar",
+  "name": "Diego Salazar",
+  "city": "Irving",
+  "mode": "in-person",
+  "availability": {
+   "days": [
+    "saturday"
+   ],
+   "note": "Saturdays"
+  },
+  "skills": [
+   {
+    "id": "skateboarding",
+    "note": "street"
+   },
+   {
+    "id": "photography",
+    "note": "film cameras"
+   }
+  ],
+  "goals": [
+   "fitness",
+   "photography"
+  ],
+  "interests": [
+   "skate spots",
+   "analog photos"
+  ],
+  "bio": "Films your best trick, kindly."
+ },
+ {
+  "id": "hana-kim",
+  "name": "Hana Kim",
+  "city": "Plano",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "friday",
+    "saturday",
+    "sunday"
+   ],
+   "note": "Fri to Sun"
+  },
+  "skills": [
+   {
+    "id": "languages",
+    "note": "Korean and Spanish"
+   },
+   {
+    "id": "anime",
+    "note": "slice of life"
+   }
+  ],
+  "goals": [
+   "social",
+   "reading"
+  ],
+  "interests": [
+   "language swaps",
+   "manga"
+  ],
+  "bio": "Trades Korean for tacos any day."
+ },
+ {
+  "id": "felix-moreau",
+  "name": "Felix Moreau",
+  "city": "Austin",
+  "mode": "online",
+  "availability": null,
+  "skills": [
+   {
+    "id": "djing",
+    "note": "house sets"
+   },
+   {
+    "id": "music-production",
+    "note": "beats"
+   }
+  ],
+  "goals": [
+   "music",
+   "social"
+  ],
+  "interests": [
+   "vinyl",
+   "house"
+  ],
+  "bio": "Plays the set that fills the floor."
+ },
+ {
+  "id": "nia-washington",
+  "name": "Nia Washington",
+  "city": "Dallas",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday"
+   ],
+   "note": "Weekends"
+  },
+  "skills": [
+   {
+    "id": "volunteering",
+    "note": "food drives"
+   },
+   {
+    "id": "project-mgmt",
+    "note": "event planning"
+   }
+  ],
+  "goals": [
+   "social",
+   "outdoors"
+  ],
+  "interests": [
+   "community",
+   "planning"
+  ],
+  "bio": "Turns “we should” into a sign-up sheet."
+ },
+ {
+  "id": "jonah-berg",
+  "name": "Jonah Berg",
+  "city": "Allen",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "thursday",
+    "friday"
+   ],
+   "note": "Thu and Fri"
+  },
+  "skills": [
+   {
+    "id": "startups",
+    "note": "pitching"
+   },
+   {
+    "id": "speaking",
+    "note": "debate"
+   }
+  ],
+  "goals": [
+   "app",
+   "hackathon"
+  ],
+  "interests": [
+   "pitch decks",
+   "debate"
+  ],
+  "bio": "Can sell a idea in 30 seconds flat."
+ },
+ {
+  "id": "sofia-rossi",
+  "name": "Sofia Rossi",
+  "city": "McKinney",
+  "mode": "in-person",
+  "availability": {
+   "days": [
+    "sunday"
+   ],
+   "note": "Sundays"
+  },
+  "skills": [
+   {
+    "id": "cooking",
+    "note": "Italian"
+   },
+   {
+    "id": "travel",
+    "note": "food tours"
+   }
+  ],
+  "goals": [
+   "food",
+   "travel"
+  ],
+  "interests": [
+   "pasta",
+   "markets"
+  ],
+  "bio": "Sunday dinner is a standing invitation."
+ },
+ {
+  "id": "arjun-patel",
+  "name": "Arjun Patel",
+  "city": "Frisco",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday"
+   ],
+   "note": "Weekends"
+  },
+  "skills": [
+   {
+    "id": "gaming",
+    "note": "strategy games"
+   },
+   {
+    "id": "game-dev",
+    "note": "Unity hobbyist"
+   },
+   {
+    "id": "web-dev",
+    "note": "JavaScript"
+   }
+  ],
+  "goals": [
+   "game",
+   "app"
+  ],
+  "interests": [
+   "indie games",
+   "game jams"
+  ],
+  "bio": "Ships tiny games every month."
+ },
+ {
+  "id": "ruth-abebe",
+  "name": "Ruth Abebe",
+  "city": "Plano",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday"
+   ],
+   "note": "Saturdays"
+  },
+  "skills": [
+   {
+    "id": "tutoring",
+    "note": "math and chemistry"
+   },
+   {
+    "id": "reading",
+    "note": "nonfiction"
+   }
+  ],
+  "goals": [
+   "study",
+   "reading"
+  ],
+  "interests": [
+   "study groups",
+   "memoirs"
+  ],
+  "bio": "Makes calculus feel like a puzzle."
+ },
+ {
+  "id": "callum-doyle",
+  "name": "Callum Doyle",
+  "city": "Garland",
+  "mode": "in-person",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday"
+   ],
+   "note": "Weekends"
+  },
+  "skills": [
+   {
+    "id": "basketball",
+    "note": "wing"
+   },
+   {
+    "id": "hiking",
+    "note": "day hikes"
+   }
+  ],
+  "goals": [
+   "basketball",
+   "outdoors"
+  ],
+  "interests": [
+   "pickup",
+   "trails"
+  ],
+  "bio": "Hoops in the morning, trail after."
+ },
+ {
+  "id": "yuki-sato",
+  "name": "Yuki Sato",
+  "city": "Richardson",
+  "mode": "online",
+  "availability": null,
+  "skills": [
+   {
+    "id": "anime",
+    "note": "mecha"
+   },
+   {
+    "id": "illustration",
+    "note": "character art"
+   },
+   {
+    "id": "gaming",
+    "note": "JRPGs"
+   }
+  ],
+  "goals": [
+   "art",
+   "game"
+  ],
+  "interests": [
+   "manga",
+   "fan art"
+  ],
+  "bio": "Draws your OC before you finish describing them."
+ },
+ {
+  "id": "priscilla-ng",
+  "name": "Priscilla Ng",
+  "city": "Dallas",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday"
+   ],
+   "note": "Saturdays"
+  },
+  "skills": [
+   {
+    "id": "marketing",
+    "note": "short-form video"
+   },
+   {
+    "id": "video-editing",
+    "note": "CapCut"
+   }
+  ],
+  "goals": [
+   "social",
+   "film"
+  ],
+  "interests": [
+   "TikTok",
+   "trends"
+  ],
+  "bio": "Knows exactly why that clip went viral."
+ },
+ {
+  "id": "leo-marchetti",
+  "name": "Leo Marchetti",
+  "city": "Plano",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "friday",
+    "saturday"
+   ],
+   "note": "Fri and Sat"
+  },
+  "skills": [
+   {
+    "id": "guitar",
+    "note": "acoustic"
+   },
+   {
+    "id": "vocals",
+    "note": "harmonies"
+   },
+   {
+    "id": "music-production",
+    "note": "home studio"
+   }
+  ],
+  "goals": [
+   "music"
+  ],
+  "interests": [
+   "folk",
+   "covers"
+  ],
+  "bio": "Has a harmony for everything."
+ },
+ {
+  "id": "amara-okoye",
+  "name": "Amara Okoye",
+  "city": "Frisco",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "sunday"
+   ],
+   "note": "Sundays"
+  },
+  "skills": [
+   {
+    "id": "fitness",
+    "note": "yoga"
+   },
+   {
+    "id": "hiking",
+    "note": "sunrise hikes"
+   },
+   {
+    "id": "reading",
+    "note": "poetry"
+   }
+  ],
+  "goals": [
+   "fitness",
+   "outdoors"
+  ],
+  "interests": [
+   "yoga",
+   "journals"
+  ],
+  "bio": "Slow mornings, big views."
+ },
+ {
+  "id": "ivy-thornton",
+  "name": "Ivy Thornton",
+  "city": "Austin",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday"
+   ],
+   "note": "Weekends"
+  },
+  "skills": [
+   {
+    "id": "crafts",
+    "note": "crochet"
+   },
+   {
+    "id": "podcasting",
+    "note": "cozy chats"
+   },
+   {
+    "id": "scriptwriting",
+    "note": "zines"
+   }
+  ],
+  "goals": [
+   "art",
+   "podcast"
+  ],
+  "interests": [
+   "zines",
+   "yarn"
+  ],
+  "bio": "Makes tiny things with great care."
+ },
+ {
+  "id": "ravi-menon",
+  "name": "Ravi Menon",
+  "city": "Irving",
+  "mode": "online",
+  "availability": {
+   "days": [
+    "monday",
+    "wednesday",
+    "friday"
+   ],
+   "note": "Weekday evenings"
+  },
+  "skills": [
+   {
+    "id": "backend-ml",
+    "note": "Python and data"
+   },
+   {
+    "id": "robotics",
+    "note": "Raspberry Pi"
+   },
+   {
+    "id": "startups",
+    "note": "indie hacker"
+   }
+  ],
+  "goals": [
+   "app",
+   "robotics"
+  ],
+  "interests": [
+   "side projects",
+   "data"
+  ],
+  "bio": "Always has a half-built thing on the desk."
+ },
+ {
+  "id": "esme-clarke",
+  "name": "Esme Clarke",
+  "city": "McKinney",
+  "mode": "in-person",
+  "availability": {
+   "days": [
+    "saturday"
+   ],
+   "note": "Saturdays"
+  },
+  "skills": [
+   {
+    "id": "photography",
+    "note": "portraits"
+   },
+   {
+    "id": "travel",
+    "note": "weekend trips"
+   }
+  ],
+  "goals": [
+   "photography",
+   "travel"
+  ],
+  "interests": [
+   "golden hour",
+   "film"
+  ],
+  "bio": "Finds the light in any parking lot."
+ },
+ {
+  "id": "dante-ruiz",
+  "name": "Dante Ruiz",
+  "city": "Dallas",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "friday",
+    "saturday"
+   ],
+   "note": "Fri and Sat"
+  },
+  "skills": [
+   {
+    "id": "djing",
+    "note": "open format"
+   },
+   {
+    "id": "dance",
+    "note": "social dancing"
+   },
+   {
+    "id": "acting",
+    "note": "improv"
+   }
+  ],
+  "goals": [
+   "music",
+   "dance"
+  ],
+  "interests": [
+   "parties",
+   "improv"
+  ],
+  "bio": "Reads a room and then rewrites it."
+ },
+ {
+  "id": "mina-aziz",
+  "name": "Mina Aziz",
+  "city": "Plano",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "sunday"
+   ],
+   "note": "Sundays"
+  },
+  "skills": [
+   {
+    "id": "volunteering",
+    "note": "animal shelter"
+   },
+   {
+    "id": "cooking",
+    "note": "meal prep"
+   }
+  ],
+  "goals": [
+   "social",
+   "food"
+  ],
+  "interests": [
+   "shelters",
+   "meal prep"
+  ],
+  "bio": "Weekend plans always include a good cause."
+ },
+ {
+  "id": "bruno-costa",
+  "name": "Bruno Costa",
+  "city": "Allen",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday"
+   ],
+   "note": "Weekends"
+  },
+  "skills": [
+   {
+    "id": "board-games",
+    "note": "D&D game master"
+   },
+   {
+    "id": "scriptwriting",
+    "note": "campaigns"
+   },
+   {
+    "id": "acting",
+    "note": "voices"
+   }
+  ],
+  "goals": [
+   "game",
+   "film"
+  ],
+  "interests": [
+   "tabletop",
+   "worldbuilding"
+  ],
+  "bio": "Runs campaigns with a voice for every villain."
+ },
+ {
+  "id": "tess-hollis",
+  "name": "Tess Hollis",
+  "city": "Dallas",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday"
+   ],
+   "note": "Saturdays"
+  },
+  "skills": [
+   {
+    "id": "ui-design",
+    "note": "apps"
+   },
+   {
+    "id": "startups",
+    "note": "product"
+   }
+  ],
+  "goals": [
+   "app",
+   "hackathon"
+  ],
+  "interests": [
+   "product design",
+   "prototypes"
+  ],
+  "bio": "Turns messy ideas into clean screens."
+ },
+ {
+  "id": "gabe-lindgren",
+  "name": "Gabe Lindgren",
+  "city": "Fort Worth",
+  "mode": "in-person",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday"
+   ],
+   "note": "Weekends"
+  },
+  "skills": [
+   {
+    "id": "skateboarding",
+    "note": "park"
+   },
+   {
+    "id": "basketball",
+    "note": "big man"
+   },
+   {
+    "id": "fitness",
+    "note": "lifting"
+   }
+  ],
+  "goals": [
+   "fitness",
+   "basketball"
+  ],
+  "interests": [
+   "skate parks",
+   "lifting"
+  ],
+  "bio": "Spots you, on the board or the bar."
+ },
+ {
+  "id": "noor-rahman",
+  "name": "Noor Rahman",
+  "city": "Houston",
+  "mode": "online",
+  "availability": null,
+  "skills": [
+   {
+    "id": "languages",
+    "note": "Arabic and French"
+   },
+   {
+    "id": "speaking",
+    "note": "storytelling"
+   },
+   {
+    "id": "podcasting",
+    "note": "interviews"
+   }
+  ],
+  "goals": [
+   "podcast",
+   "social"
+  ],
+  "interests": [
+   "languages",
+   "stories"
+  ],
+  "bio": "Asks the follow-up question you were hoping for."
+ },
+ {
+  "id": "wes-calder",
+  "name": "Wes Calder",
+  "city": "Richardson",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "friday"
+   ],
+   "note": "Friday nights"
+  },
+  "skills": [
+   {
+    "id": "gaming",
+    "note": "fighting games"
+   },
+   {
+    "id": "chess",
+    "note": "blitz"
+   }
+  ],
+  "goals": [
+   "game"
+  ],
+  "interests": [
+   "arcades",
+   "blitz"
+  ],
+  "bio": "Will run it back as many times as you like."
+ },
+ {
+  "id": "zoe-abara",
+  "name": "Zoe Abara",
+  "city": "Plano",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "friday",
+    "saturday",
+    "sunday"
+   ],
+   "note": "Pretty open"
+  },
+  "skills": [
+   {
+    "id": "anything",
+    "note": "says yes to new things"
+   }
+  ],
+  "goals": [
+   "social"
+  ],
+  "interests": [
+   "new people",
+   "random adventures"
+  ],
+  "bio": "Up for almost anything once."
+ },
+ {
+  "id": "sana-qureshi",
+  "name": "Sana Qureshi",
+  "city": "Dallas",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday"
+   ],
+   "note": "Weekends"
+  },
+  "skills": [
+   {
+    "id": "anything",
+    "note": "curious about everything"
+   }
+  ],
+  "goals": [
+   "social"
+  ],
+  "interests": [
+   "trying stuff",
+   "good company"
+  ],
+  "bio": "Brings snacks and good questions."
+ },
+ {
+  "id": "theo-briggs",
+  "name": "Theo Briggs",
+  "city": "Frisco",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday",
+    "sunday",
+    "monday"
+   ],
+   "note": "Flexible"
+  },
+  "skills": [
+   {
+    "id": "anything",
+    "note": "game for it"
+   }
+  ],
+  "goals": [
+   "social"
+  ],
+  "interests": [
+   "spontaneity",
+   "new hobbies"
+  ],
+  "bio": "If it sounds fun, count him in."
+ },
+ {
+  "id": "pia-novak",
+  "name": "Pia Novak",
+  "city": "Irving",
+  "mode": "online",
+  "availability": null,
+  "skills": [
+   {
+    "id": "anything",
+    "note": "open to ideas"
+   }
+  ],
+  "goals": [
+   "social"
+  ],
+  "interests": [
+   "side quests",
+   "chatting"
+  ],
+  "bio": "Happy to jump on a call and brainstorm."
+ },
+ {
+  "id": "hugo-tanaka",
+  "name": "Hugo Tanaka",
+  "city": "McKinney",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "sunday"
+   ],
+   "note": "Sundays"
+  },
+  "skills": [
+   {
+    "id": "anything",
+    "note": "beginner friendly"
+   }
+  ],
+  "goals": [
+   "social"
+  ],
+  "interests": [
+   "learning",
+   "weekends"
+  ],
+  "bio": "A beginner on purpose, a good sport always."
+ },
+ {
+  "id": "esther-cole",
+  "name": "Esther Cole",
+  "city": "Austin",
+  "mode": "both",
+  "availability": {
+   "days": [
+    "saturday"
+   ],
+   "note": "Saturdays"
+  },
+  "skills": [
+   {
+    "id": "anything",
+    "note": "free spirit"
+   }
+  ],
+  "goals": [
+   "social"
+  ],
+  "interests": [
+   "road trips",
+   "new hobbies"
+  ],
+  "bio": "Keeps a list of “someday” things and works through it."
+ }
 ]

@@ -14,6 +14,13 @@ Then open http://localhost:3000. Needs Node 18+ (tested on Node 24). No `npm ins
 **Optional AI (Groq):** copy `.env.example` to `.env` and set `GROQ_API_KEY`. The key is read by the server only, never sent to the browser, and `.env` is git-ignored. Without a key the site still works: the AI Finder tab is disabled and the help bot falls back to basic local rules.
 Use `PORT=4000 node server.js` for another port. To reset the demo (delete all groups and messages), stop the server and delete `data/db.json`.
 
+## Deploying on Vercel (demo)
+
+The repo is Vercel-ready: `public/` is served as static files and `api/[...path].js` runs the same API as `server.js`.
+1. Import the GitHub repo in Vercel (no build command needed; `vercel.json` sets the output folder).
+2. Optional AI: add `GROQ_API_KEY` under Project Settings, Environment Variables (never in the repo), then redeploy.
+3. Vercel functions can't keep files, so on Vercel **groups and chat are stored in the visitor's browser** (the API tells the page to do this). Locally, `node server.js` still stores them in `data/db.json`.
+
 ## What is real and what is simulated
 
 | Area | Actual mode |
@@ -22,7 +29,7 @@ Use `PORT=4000 node server.js` for another port. To reset the demo (delete all g
 | **AI Finder tab + Help bot** | Groq models (`openai/gpt-oss-120b` for the Finder, `openai/gpt-oss-20b` for the help bot), called server-side. The Finder only turns a short chat into a goal; **the people shown still come from the local matcher and profile data**. The help bot returns an allow-listed page to open; the "how to get there / get back" text is fixed, not model-written. If the AI call fails, the UI says so. |
 | **Assistant ("Help us get started")** | A **template**, not an AI. It fills in the goal, members' stated skills and shared free days. It is labeled as a draft, can be edited, posted or discarded. |
 | **Storage** | `data/db.json` on the machine running the server. Rooms and messages survive refresh and restart. Anyone opening the same server URL sees the same rooms. Your profile, goal and a client id live in the browser's `localStorage`. |
-| **Members** | The 16 profiles in `data/profiles.json` are fictional. They never reply. Nothing pretends they are online. |
+| **Members** | The 51 profiles in `data/profiles.json` are fictional (work, school and plain-fun skills; six are "open to anything" so every goal returns people, with an honest *Closest fit* note). Typed custom skills are mapped to the nearest known skill by the AI, or by local keyword rules if it is off. They never reply. Nothing pretends they are online. |
 | **Accounts** | None. No email, no sign-in. "My groups" is per browser (its client id). |
 | **How AI was used** | Claude Code (Claude Opus/Sonnet) helped write this code, and the art pack was supplied by the team. No model is called while the site runs. |
 
@@ -47,7 +54,7 @@ Use `PORT=4000 node server.js` for another port. To reset the demo (delete all g
 - `I can shoot a short film in Plano this Saturday and need someone who can edit.` → Maya (free Saturday, Plano) and Priya (**availability unknown**, online only)
 - Change "in Plano" to "online" → the "online only" caveat disappears and the Plano chip becomes Online.
 - Change "in Plano" to "in person in Dallas" → Theo (Dallas, in person, free Saturday).
-- `I want to start a pickup basketball group in Frisco this Sunday` → nobody fits; KNOT names the limiting constraint and offers "Any city".
+- `I want a hiking buddy this Saturday` or `something fun` → fun matches too; unknown goals fall back to the open-to-anything people.
 - `I want to build a study app for our hackathon online and need a designer.` → Devon and Iris.
 
 ## Four-minute demo
