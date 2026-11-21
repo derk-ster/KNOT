@@ -1,5 +1,5 @@
 {
   "framework": null,
   "outputDirectory": "public",
-  "functions": { "api/[...path].js": { "includeFiles": "{data,lib}/**", "maxDuration": 20 } }
+  "functions": { "api/[...path].js": { "includeFiles": "{data,lib}/**", "maxDuration": 10 } }
 }
