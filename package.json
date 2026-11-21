@@ -1,0 +1,12 @@
+{
+  "name": "knot",
+  "version": "1.0.0",
+  "description": "KNOT - find people to do something with. ITKAN AI Hackathon demo.",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

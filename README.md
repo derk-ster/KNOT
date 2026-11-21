@@ -1,0 +1,70 @@
+# KNOT
+
+Describe what you want to do. KNOT finds people who can do it with you, shows exactly why they fit, and starts the group chat.
+Built for the ITKAN AI Hackathon (Plano, TX).
+
+## Launch
+
+```bash
+node server.js
+```
+
+Then open http://localhost:3000. Needs Node 18+ (tested on Node 24). No `npm install`, no dependencies, no API key.
+Use `PORT=4000 node server.js` for another port. To reset the demo (delete all groups and messages), stop the server and delete `data/db.json`.
+
+## What is real and what is simulated
+
+| Area | Actual mode |
+|---|---|
+| **Matching** | **Local rules, no AI model at runtime.** A deterministic matcher in `lib/match.js` reads skills, a city, in-person vs. online and a day from the goal text with keyword rules, applies explicit requirements first, then ranks by skill and topic overlap. Every sentence shown comes from a stored profile field. The UI labels this "Local matcher". |
+| **Assistant ("Help us get started")** | A **template**, not an AI. It fills in the goal, members' stated skills and shared free days. It is labeled as a draft, can be edited, posted or discarded. |
+| **Storage** | `data/db.json` on the machine running the server. Rooms and messages survive refresh and restart. Anyone opening the same server URL sees the same rooms. Your profile, goal and a client id live in the browser's `localStorage`. |
+| **Members** | The 16 profiles in `data/profiles.json` are fictional. They never reply. Nothing pretends they are online. |
+| **Accounts** | None. No email, no sign-in. "My groups" is per browser (its client id). |
+| **How AI was used** | Claude Code (Claude Opus/Sonnet) helped write this code, and the art pack was supplied by the team. No model is called while the site runs. |
+
+## Files
+
+- `server.js` : static server + JSON API (`/api/match`, `/api/rooms`, `/api/rooms/:id/messages`, `/api/rooms/:id/assist`)
+- `lib/match.js` : the matcher and the assistant template
+- `data/profiles.json` : fictional profiles (structured facts the matcher uses)
+- `public/` : `index.html`, `app.js`, `styles.css`, `assets/art` (chrome art), `assets/fonts`
+- `Media/` : original supplied art (untouched); `prep/` : the web copies made from it
+
+## Credits
+
+- Chrome art, knot mark and hero: supplied KNOT asset pack (`Media/KNOT_ALL_ASSETS`)
+- Fonts: Bricolage Grotesque and DM Sans (SIL Open Font License; copies in `public/assets/fonts`)
+- Layout inspiration: hildenkaira.fi (bold headline, floating metal accents). All layouts and copy here are original.
+- No third-party JavaScript libraries or APIs.
+
+## Try these (the matcher understands skills like editing, filming, design, music, basketball, tutoring)
+
+- `I can shoot a short film in Plano this Saturday and need someone who can edit.` → Maya (free Saturday, Plano) and Priya (**availability unknown**, online only)
+- Change "in Plano" to "online" → the "online only" caveat disappears and the Plano chip becomes Online.
+- Change "in Plano" to "in person in Dallas" → Theo (Dallas, in person, free Saturday).
+- `I want to start a pickup basketball group in Frisco this Sunday` → nobody fits; KNOT names the limiting constraint and offers "Any city".
+- `I want to build a study app for our hackathon online and need a designer.` → Devon and Iris.
+
+## Four-minute demo
+
+1. **0:00 The goal.** "I'm a filmmaker and I need an editor." Click the first example, then **Find my people**. The profile step asks only for a name and one skill; the goal is kept.
+2. **0:45 The people.** Point to the chips: KNOT understood *you offer filming, looking for video editing, Plano, Saturday*. Open **Why this match?** on Maya and show the exact profile fields used. Point at Priya's ochre "Availability unknown".
+3. **1:30 The change.** Ask a judge for a change, or edit "in Plano" to "online". Focus and scroll stay put, one chip changes, and the results update in place.
+4. **2:15 The failure case.** Type a goal with no match (the Frisco basketball example): KNOT says what limited the search and offers one click to relax it. The goal stays intact.
+5. **2:45 The group.** Select Maya and Priya (a violet strand joins the goal to each), **Create group**, watch the strands tie into the knot, and see the teal "Group created".
+6. **3:20 The first step.** Click **Help us get started**, show the labeled draft, edit a word, post it, send one message. Refresh the page to show it persists.
+
+## Three likely judge questions
+
+1. **"Where is the AI?"** Honest answer: the running site uses a transparent local matcher and a template for the starter message, so every reason is traceable to profile data (that's what "Why this match?" shows). We used Claude Code to build it. The matcher's `parseGoal` and `buildAssist` are the two places a model would slot in.
+2. **"Are these real people? What about privacy?"** The 16 profiles are fictional. Real use would need accounts, consent and moderation; today there are no accounts, only city-level location and no email collected.
+3. **"Can multiple people really chat?"** Yes, technically: rooms and messages live on the server, so a second browser opening the same room link sees the same messages (it refreshes every 4 seconds). The fictional members don't answer, and we say so in the UI.
+
+## Known limits
+
+- Single laptop server; no authentication; the room link is the only access control.
+- Keyword matching only understands the 20 skills in `lib/match.js`; unknown skills get an honest "couldn't tell which skill you're looking for".
+- Plain-text goal parsing: "online", "in person", a known city and weekday names are the recognized constraints.
+- No leave-group action yet, so the untie animation in the pack is unused.
+- Not tested with a screen reader; keyboard use and reduced motion were built in and spot-checked.

@@ -1,0 +1,23 @@
+# secrets
+.env
+.env.*
+*.pem
+*.key
+
+# dependencies and build output
+node_modules/
+dist/
+build/
+.next/
+coverage/
+
+# runtime demo data (rooms/messages), created by the server
+data/db.json
+data/*.tmp
+
+# OS / editor / logs
+.DS_Store
+*.log
+.idea/
+.vscode/
+.claude/

@@ -1,0 +1,114 @@
+[
+  {
+    "id": "maya-okafor", "name": "Maya Okafor", "city": "Plano", "mode": "both",
+    "availability": { "days": ["saturday", "sunday"], "note": "Free all weekend" },
+    "skills": [{ "id": "video-editing", "note": "DaVinci Resolve" }, { "id": "sound-design", "note": "dialogue cleanup" }],
+    "goals": ["film", "music"], "interests": ["short films", "jazz", "color grading"],
+    "bio": "Edits student shorts and loves tight, fast cuts."
+  },
+  {
+    "id": "theo-nguyen", "name": "Theo Nguyen", "city": "Dallas", "mode": "in-person",
+    "availability": { "days": ["saturday"], "note": "Saturdays only" },
+    "skills": [{ "id": "video-editing", "note": "Premiere Pro" }, { "id": "filming", "note": "Sony A7 IV" }],
+    "goals": ["film"], "interests": ["documentaries", "street photography"],
+    "bio": "Documentary editor who prefers working side by side."
+  },
+  {
+    "id": "priya-raman", "name": "Priya Raman", "city": "Plano", "mode": "online",
+    "availability": null,
+    "skills": [{ "id": "video-editing", "note": "Final Cut Pro" }, { "id": "marketing", "note": "YouTube channels" }],
+    "goals": ["film", "podcast"], "interests": ["YouTube", "storytelling"],
+    "bio": "Edits remotely and has not shared her schedule yet."
+  },
+  {
+    "id": "jordan-ellis", "name": "Jordan Ellis", "city": "Frisco", "mode": "both",
+    "availability": { "days": ["friday", "sunday"], "note": "Fridays and Sundays" },
+    "skills": [{ "id": "video-editing", "note": "CapCut, short-form" }, { "id": "marketing", "note": "TikTok growth" }],
+    "goals": ["film", "social"], "interests": ["short-form video", "branding"],
+    "bio": "Cuts punchy short-form video for student clubs."
+  },
+  {
+    "id": "sam-alvarez", "name": "Sam Alvarez", "city": "Richardson", "mode": "in-person",
+    "availability": { "days": ["saturday"], "note": "Free Saturday afternoons" },
+    "skills": [{ "id": "filming", "note": "Sony FX3, gimbal work" }, { "id": "photography", "note": "portraits" }],
+    "goals": ["film", "photography"], "interests": ["cinematography", "portraits"],
+    "bio": "Owns a cinema camera and a gimbal."
+  },
+  {
+    "id": "lena-kowalski", "name": "Lena Kowalski", "city": "Plano", "mode": "both",
+    "availability": { "days": ["saturday", "sunday"], "note": "Weekends" },
+    "skills": [{ "id": "scriptwriting", "note": "short scripts" }, { "id": "acting", "note": "theatre background" }],
+    "goals": ["film"], "interests": ["theatre", "comedy"],
+    "bio": "Writes five-minute scripts and acts in them."
+  },
+  {
+    "id": "devon-brooks", "name": "Devon Brooks", "city": "Plano", "mode": "both",
+    "availability": { "days": ["saturday", "sunday"], "note": "Free all weekend" },
+    "skills": [{ "id": "web-dev", "note": "React, Node" }, { "id": "ui-design", "note": "Figma" }],
+    "goals": ["app", "hackathon"], "interests": ["hackathons", "education tech"],
+    "bio": "Full-stack builder who has shipped three hackathon demos."
+  },
+  {
+    "id": "aiko-tanaka", "name": "Aiko Tanaka", "city": "Dallas", "mode": "online",
+    "availability": { "days": ["saturday"], "note": "Saturdays" },
+    "skills": [{ "id": "backend-ml", "note": "Python, APIs" }, { "id": "web-dev", "note": "Flask" }],
+    "goals": ["app", "hackathon"], "interests": ["machine learning", "data"],
+    "bio": "Backend and data person who works remotely."
+  },
+  {
+    "id": "iris-vega", "name": "Iris Vega", "city": "Austin", "mode": "online",
+    "availability": { "days": ["saturday", "sunday"], "note": "Weekends" },
+    "skills": [{ "id": "ui-design", "note": "Figma prototypes" }, { "id": "illustration", "note": "vector art" }],
+    "goals": ["app", "game", "hackathon"], "interests": ["product design", "illustration"],
+    "bio": "Designs clean app screens and quick brand art."
+  },
+  {
+    "id": "marcus-reed", "name": "Marcus Reed", "city": "Plano", "mode": "in-person",
+    "availability": { "days": ["saturday", "sunday"], "note": "Weekend mornings" },
+    "skills": [{ "id": "basketball", "note": "pickup point guard" }, { "id": "project-mgmt", "note": "runs a rec league" }],
+    "goals": ["basketball"], "interests": ["pickup games", "coaching"],
+    "bio": "Organizes weekend pickup games."
+  },
+  {
+    "id": "imani-cole", "name": "Imani Cole", "city": "Frisco", "mode": "both",
+    "availability": null,
+    "skills": [{ "id": "vocals", "note": "alto, harmonies" }, { "id": "music-production", "note": "GarageBand" }],
+    "goals": ["music"], "interests": ["R&B", "songwriting"],
+    "bio": "Sings and writes hooks; schedule not shared yet."
+  },
+  {
+    "id": "noah-fischer", "name": "Noah Fischer", "city": "Plano", "mode": "both",
+    "availability": { "days": ["friday", "saturday"], "note": "Friday and Saturday" },
+    "skills": [{ "id": "music-production", "note": "Ableton Live" }, { "id": "guitar", "note": "electric and acoustic" }, { "id": "sound-design", "note": "synths" }],
+    "goals": ["music", "podcast"], "interests": ["lo-fi", "indie rock"],
+    "bio": "Produces beats and plays guitar over them."
+  },
+  {
+    "id": "zara-hussain", "name": "Zara Hussain", "city": "Dallas", "mode": "both",
+    "availability": { "days": ["sunday"], "note": "Sundays" },
+    "skills": [{ "id": "podcasting", "note": "host and interviewer" }, { "id": "marketing", "note": "newsletters" }],
+    "goals": ["podcast"], "interests": ["interviews", "local stories"],
+    "bio": "Hosts a campus podcast."
+  },
+  {
+    "id": "eli-park", "name": "Eli Park", "city": "Plano", "mode": "online",
+    "availability": { "days": ["saturday", "sunday"], "note": "Weekends" },
+    "skills": [{ "id": "game-dev", "note": "Unity" }, { "id": "illustration", "note": "pixel art" }],
+    "goals": ["game", "hackathon"], "interests": ["indie games", "pixel art"],
+    "bio": "Builds small Unity games with pixel art."
+  },
+  {
+    "id": "rosa-mendes", "name": "Rosa Mendes", "city": "Richardson", "mode": "both",
+    "availability": { "days": ["saturday"], "note": "Saturdays" },
+    "skills": [{ "id": "tutoring", "note": "calculus and physics" }, { "id": "project-mgmt", "note": "study schedules" }],
+    "goals": ["study"], "interests": ["math", "study groups"],
+    "bio": "Tutors calculus and keeps study groups on schedule."
+  },
+  {
+    "id": "cam-whitaker", "name": "Cam Whitaker", "city": "Plano", "mode": "in-person",
+    "availability": null,
+    "skills": [{ "id": "robotics", "note": "Arduino, 3D printing" }, { "id": "tutoring", "note": "electronics basics" }],
+    "goals": ["robotics"], "interests": ["robot clubs", "3D printing"],
+    "bio": "Builds Arduino robots; availability not shared yet."
+  }
+]

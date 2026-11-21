@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KNOT: find your people</title>
+  <meta name="description" content="Describe what you want to do. KNOT finds people who can do it with you, explains why, and starts the group chat.">
+  <link rel="icon" href="assets/art/knot-mark.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/fonts/BricolageGrotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/fonts/fonts.css">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <div class="wrap bar">
+      <a class="brand" href="#/" aria-label="KNOT, home">
+        <img src="assets/art/knot-mark.svg" width="42" height="32" alt="">
+        <span>KNOT</span>
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a class="nav-link" id="navGroups" href="#/groups">My groups <span class="count" id="groupCount" hidden></span></a>
+        <button class="profile-btn" id="profileBtn" type="button" aria-haspopup="dialog" aria-label="Your profile">
+          <span class="avatar sm" id="profileAvatar" aria-hidden="true">?</span>
+          <span id="profileLabel">Profile</span>
+        </button>
+      </nav>
+    </div>
+  </header>
+  <main id="main" class="wrap" tabindex="-1"></main>
+  <p class="sr" id="live" role="status" aria-live="polite"></p>
+  <div id="overlayRoot"></div>
+  <dialog id="profileDialog" aria-labelledby="profileTitle"></dialog>
+  <dialog id="createDialog" aria-labelledby="createTitle"></dialog>
+</body>
+</html>
