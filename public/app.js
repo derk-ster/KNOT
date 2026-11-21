@@ -85,6 +85,23 @@ function route(initial) {
 }
 window.addEventListener('hashchange', () => route(false));
 
+
+// ---------- personalised examples ----------
+let exTimer = 0, exToken = 0;
+function paintExamples(list, label, into = '#examples') {
+  const box = $(into); if (!box) return;
+  const key = label + '|' + list.join('|'); if (box.dataset.key === key) return; box.dataset.key = key;
+  box.innerHTML = `<span class="ex-label">${esc(label)}</span>` + list.map(e => `<button type="button" class="chip example" data-text="${esc(e)}">${esc(e)}</button>`).join('');
+}
+async function fetchExamples() {
+  return api('/api/examples', { method: 'POST', body: JSON.stringify({ goal: state.goal || '', skills: state.me ? state.me.skills : [] }) });
+}
+async function refreshExamples() {
+  const tok = ++exToken;
+  try { const r = await fetchExamples(); if (tok === exToken) paintExamples(r.examples, r.label); } catch { /* keep the current examples */ }
+}
+function scheduleExamples() { clearTimeout(exTimer); exTimer = setTimeout(refreshExamples, 450); }
+
 // ---------- HOME ----------
 function renderHome(initial) {
   const main = $('#main');
@@ -103,10 +120,18 @@ function renderHome(initial) {
           </div>
         </form></div>
         <p id="goalErr" class="msg err" role="alert" hidden></p>
-        <div class="examples"><span class="ex-label">Try an example</span>
-          ${EXAMPLES.map((e, i) => `<button type="button" class="chip example" data-i="${i}">${esc(e)}</button>`).join('')}
-        </div>
+        <div class="examples" id="examples" aria-live="polite"></div>
       </div>
+    </section>
+
+    <section id="startGuide" class="guide" aria-labelledby="gdh">
+      <h2 id="gdh">New here? Three steps</h2>
+      <ol class="steps">
+        <li><span class="n" aria-hidden="true">1</span><div><strong>Say what you want to do</strong><p>Type it in the box above: what, where and when. Not sure how to word it? Tap an example, or chat it out in the <a href="#/finder">AI Finder</a>.</p></div></li>
+        <li><span class="n" aria-hidden="true">2</span><div><strong>Pick your people</strong><p>KNOT shows up to three matches and says exactly why. Press <b>Add to group</b> on the ones you like.</p></div></li>
+        <li><span class="n" aria-hidden="true">3</span><div><strong>Start the group</strong><p>Press <b>Create group</b>, then chat in the room. “Help us get started” writes a first message for you.</p></div></li>
+      </ol>
+      <p class="guide-tip">Nothing typed yet? Write one sentence, like <em>“I need someone who can edit my video this Saturday.”</em>, then press <b>Find my people</b>.</p>
     </section>
 
     <section id="resultsSection" class="results-section" aria-labelledby="resHead" hidden>
@@ -130,14 +155,16 @@ function renderHome(initial) {
   goal.value = state.goal;
   goal.addEventListener('input', () => {
     if (state.goal !== goal.value) { state.relaxed = []; }
-    state.goal = goal.value; store.set('knot.goal', state.goal); hideErr('#goalErr');
+    state.goal = goal.value; store.set('knot.goal', state.goal); hideErr('#goalErr'); scheduleExamples();
   });
   goal.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); findPeople(); } });
   $('#goalForm').addEventListener('submit', e => { e.preventDefault(); findPeople(); });
-  $$('.example').forEach(b => b.addEventListener('click', () => {
-    goal.value = EXAMPLES[b.dataset.i]; goal.dispatchEvent(new Event('input')); goal.focus();
+  $('#examples').addEventListener('click', e => {
+    const b = e.target.closest('.example'); if (!b) return;
+    goal.value = b.dataset.text; goal.dispatchEvent(new Event('input')); goal.focus();
     goal.setSelectionRange(goal.value.length, goal.value.length);
-  }));
+  });
+  paintExamples(EXAMPLES, 'Try an example'); refreshExamples();
   $('#results').addEventListener('click', onResultsClick);
   $('#results').addEventListener('change', onResultsChange);
   $('#interp').addEventListener('click', onRelaxClick);
@@ -162,7 +189,7 @@ function setBusy(on) {
 async function findPeople(force) {
   const goal = state.goal.trim();
   if (!goal) {
-    showErr('#goalErr', 'Add a goal first. Try: “I need someone who can edit video this Saturday.”');
+    showErr('#goalErr', 'Your goal box is empty. Type one sentence about what you want to do and who you need, like “I need someone who can edit video this Saturday”, or tap an example below.');
     const g = $('#goal'); g.setAttribute('aria-invalid', 'true'); g.focus();
     return;
   }
@@ -175,8 +202,8 @@ async function findPeople(force) {
     state.resp = resp; state.respKey = key; store.set('knot.searched', true);
     renderResults(resp);
   } catch (e) {
-    $('#resultsSection').hidden = false;
-    $('#matchErr').innerHTML = icon.alert + `<span>KNOT couldn't reach its matcher (${esc(e.message)}). Your goal is saved. </span><button type="button" class="link-btn" id="retryBtn">Try again</button>`;
+    $('#resultsSection').hidden = false; const sg2 = $('#startGuide'); if (sg2) sg2.hidden = true;
+    $('#matchErr').innerHTML = icon.alert + `<span>KNOT couldn't reach its matcher (${esc(e.message)}). Your goal is saved. Check that the KNOT server is still running, then try again. </span><button type="button" class="link-btn" id="retryBtn">Try again</button>`;
     $('#matchErr').hidden = false;
     $('#retryBtn').addEventListener('click', () => findPeople(true));
   } finally { setBusy(false); }
@@ -198,7 +225,7 @@ function onRelaxClick(e) {
 // render the understood-constraints row, results (keyed), and empty state
 function renderResults(resp, restoring) {
   const y = scrollY, active = document.activeElement;
-  $('#resultsSection').hidden = false;
+  $('#resultsSection').hidden = false; const sg = $('#startGuide'); if (sg) sg.hidden = true;
   hideErr('#matchErr');
   const it = resp.interpreted;
   const chips = [];
@@ -342,7 +369,7 @@ function openProfile(opts = {}) {
     if (!name) $('#pName').focus();
     if (bad) return;
     state.me = { name, skills, interests: $('#pInterests').value.trim(), city: $('#pCity').value, availability: $$('#pDays input:checked').map(i => i.value), mode: ($('input[name=pMode]:checked') || { value: 'both' }).value };
-    store.set('knot.me', state.me); state.respKey = null;
+    store.set('knot.me', state.me); state.respKey = null; if ($('#examples')) refreshExamples();
     d.close(); paintHeader();
     if (opts.thenSearch || (opts.rerun && state.goal.trim())) findPeople(true); else say('Profile saved.');
   });
@@ -441,7 +468,7 @@ function paintFinder() {
   const log = $('#fLog'); if (!log) return;
   log.innerHTML = `<div class="bubble bot">${esc(FINDER_HELLO)}</div>` + state.finder.items.map(finderBubble).join('') +
     (state.finder.busy ? '<div class="bubble bot typing" aria-label="KNOT is thinking"><i></i><i></i><i></i></div>' : '') +
-    (state.finder.error ? `<p class="msg err" role="alert">${icon.alert}<span>${esc(state.finder.error)} </span><button type="button" class="link-btn" id="fRetry">Try again</button></p>` : '');
+    (state.finder.error ? `<p class="msg err" role="alert">${icon.alert}<span>${esc(state.finder.error)} </span>${state.finder.items.length && state.finder.items[state.finder.items.length - 1].role === 'user' ? '<button type="button" class="link-btn" id="fRetry">Try again</button>' : ''}</p>` : '');
   log.scrollTop = log.scrollHeight;
   const send = $('#fSend'); if (send) { send.disabled = state.finder.busy; send.setAttribute('aria-busy', state.finder.busy); }
 }
@@ -468,15 +495,20 @@ async function renderFinder() {
     <p class="lead">A quick chat to work out who you need. Matches come from KNOT’s people and rules, never from the AI’s imagination.</p>
     <div id="fOff" class="msg warn" hidden></div>
     <div class="chat" id="fLog" role="log" aria-live="polite" aria-label="Conversation"></div>
-    <div class="ideas" id="fIdeas">${FINDER_IDEAS.map(x => `<button type="button" class="chip example" data-idea="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+    <div class="ideas" id="fIdeas"></div>
     <form id="fForm" class="chat-form" novalidate>
       <label class="sr" for="fInput">Message to the AI Finder</label>
       <input id="fInput" type="text" maxlength="300" autocomplete="off" placeholder="What do you want to do?">
       <button class="btn primary" id="fSend" type="submit">Send ${icon.send}</button>
     </form></section>`;
   paintFinder();
+  const ideas = (list, label) => { const b = $('#fIdeas'); if (b) b.innerHTML = `<span class="ex-label">${esc(label)}</span>` + list.map(x => `<button type="button" class="chip example" data-idea="${esc(x)}">${esc(x)}</button>`).join(''); };
+  ideas(FINDER_IDEAS, 'Try one of these');
+  fetchExamples().then(r => ideas(r.examples, r.label)).catch(() => {});
   const send = txt => {
-    txt = txt.trim(); if (!txt || state.finder.busy) return;
+    txt = txt.trim();
+    if (!txt) { state.finder.error = 'Your message is empty. Type what you want to do, for example “I need someone to edit my short film”, then press Send.'; paintFinder(); $('#fInput').focus(); return; }
+    if (state.finder.busy) return;
     state.finder.items.push({ role: 'user', content: txt }); $('#fInput').value = ''; finderAsk();
   };
   $('#fForm').addEventListener('submit', e => { e.preventDefault(); send($('#fInput').value); });

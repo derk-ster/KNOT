@@ -41,7 +41,9 @@
   root.addEventListener('keydown', e => { if (e.key === 'Escape' && !panel.hidden) open(false); });
 
   async function ask(q) {
-    q = q.trim(); if (!q || busy) return;
+    q = q.trim();
+    if (!q) { add('bot err', 'Type a question first, or tap one of the buttons above.'); input.focus(); return; }
+    if (busy) return;
     busy = true; $('#helpSend').disabled = true; input.value = '';
     add('me', q); history.push({ role: 'user', content: q });
     const wait = add('bot typing', '…');

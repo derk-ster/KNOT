@@ -8,6 +8,7 @@ require('./lib/env');
 const { db, save } = require('./lib/store');
 const groq = require('./lib/groq');
 const { finderTurn, helpTurn } = require('./lib/ai');
+const { examplesFor } = require('./lib/examples');
 const { profiles, SKILLS, SKILL_BY_ID, matchGoal, buildAssist, cap } = require('./lib/match');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -70,6 +71,11 @@ async function api(req, res, url) {
   }
   if (m === 'GET' && parts[0] === 'skills') return send(res, 200, { skills: SKILLS.map(s => ({ id: s.id, label: s.label })) });
 
+  if (m === 'POST' && parts[0] === 'examples') {
+    const b = await readBody(req);
+    return send(res, 200, examplesFor({ goal: str(b.goal, 300), skills: (Array.isArray(b.skills) ? b.skills : []).filter(id => SKILL_IDS.has(id)) }));
+  }
+
   if (m === 'POST' && parts[0] === 'match') {
     const b = await readBody(req);
     const goal = str(b.goal, 500);
@@ -103,7 +109,7 @@ async function api(req, res, url) {
       return send(res, 201, { room: publicRoom(room, true) });
     }
     const room = db.rooms.find(r => r.id === parts[1]);
-    if (!room) return send(res, 404, { error: 'This group could not be found. It may have been created on another computer.' });
+    if (!room) return send(res, 404, { error: 'This group could not be found. It may have been created in another browser or on another computer. Open My groups to see the groups saved in this browser.' });
     if (m === 'GET' && parts.length === 2) return send(res, 200, { room: publicRoom(room, true) });
     if (m === 'POST' && parts[2] === 'messages') {
       const b = await readBody(req);
