@@ -122,9 +122,14 @@ test('group creation: persisted, invite code, duplicate request deduped', async 
   const r1 = await post('/api/rooms', body, j);
   assert.equal(r1.status, 201);
   const { room, duplicate } = await r1.json();
-  assert.ok(!duplicate && room.inviteCode && room.members.length === 2);
-  assert.ok(room.members[0].you === true, 'creator marked as you');
-  assert.ok(room.members[1].demo === true, 'fictional profile tagged demo');
+  const people = room.members.filter(m => !m.ai);
+  assert.ok(!duplicate && room.inviteCode && people.length === 2);
+  assert.ok(people[0].you === true, 'creator marked as you');
+  assert.ok(people[1].demo === true, 'fictional profile tagged demo');
+  // KNOT AI is listed with the members but is not one: no demo tag, not you, takes no capacity.
+  const ai = room.members.find(m => m.ai);
+  assert.ok(ai && ai.name === 'KNOT AI' && ai.demo === false && ai.you === false, 'KNOT AI is listed as the helper');
+  assert.equal(room.capacityUsed, 2, 'the helper never takes a seat');
   const r2 = await post('/api/rooms', { ...body, requestId: 'req-1' }, j);
   const d2 = await r2.json();
   assert.equal(d2.duplicate, true, 'repeated clicks return the same room');
@@ -440,11 +445,22 @@ test('room settings: AI stays off by default and can switch to on-demand, never 
   await signup(j, { name: 'Ollie Owner' });
   const { room } = await (await post('/api/rooms', { requestId: 'req-ai', title: 'AI switch lab', goal: 'Test the assistant switch.', memberIds: [] }, j)).json();
   assert.equal(room.aiMode, 'off', 'new groups start with AI off');
-  const askOff = await post(`/api/rooms/${room.id}/messages`, { text: '/askknot what should we do?' }, j);
+  // The room's /ai command is turned into this flag by the client, so no slash syntax reaches here.
+  const askOff = await post(`/api/rooms/${room.id}/messages`, { text: 'what should we do?', askAi: true }, j);
   assert.equal(askOff.status, 403, 'assistant cannot be invoked while off');
   const set = await patch(`/api/rooms/${room.id}`, { aiMode: 'on-demand' }, j);
   assert.equal(set.status, 200);
   assert.equal((await set.json()).room.aiMode, 'on-demand');
+  // Asking once the room allows it posts the member's own words, with no slash and no "assistant" kind
+  // from the client. Without a model configured there is no reply, and that must not break the send.
+  const askOn = await post(`/api/rooms/${room.id}/messages`, { text: 'who can edit?', askAi: true }, j);
+  assert.equal(askOn.status, 201);
+  const asked = await askOn.json();
+  assert.equal(asked.message.text, 'who can edit?', 'the question posts as a plain member message');
+  assert.equal(asked.message.kind, 'user', 'the client cannot make its own message an assistant line');
+  const after = (await (await get(`/api/rooms/${room.id}/messages`, j)).json()).messages;
+  assert.ok(after.every(m => m.kind !== 'assistant' || m.authorName === 'KNOT AI'), 'only KNOT AI can post assistant lines');
+  assert.ok(after.filter(m => m.kind === 'assistant').length <= 1, 'one question gets at most one answer');
   // a member (not a moderator) cannot change settings
   const member = jar();
   await signup(member, { name: 'Mia Member' });

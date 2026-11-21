@@ -99,17 +99,33 @@ function publicRoom(room, withMessages, user) {
     availabilityText: m.availabilityText || 'Not listed', availabilityDays: m.availabilityDays || null, avatar: m.avatar || null
   }));
   const demoMembers = (room.demoMembers || []).map(m => ({ ...m, demo: true, you: false }));
-  const members = [...realMembers, ...demoMembers];
+  // KNOT AI is listed with the members of every group, so it is a visible helper rather than a
+  // surprise voice in the room. It is not a person and not a member: it takes no capacity, has no
+  // profile, cannot be kicked or banned, and its own lines are stored as kind 'assistant'.
+  const aiMember = {
+    id: 'knot-ai', name: 'KNOT AI', role: null, demo: false, you: false, ai: true,
+    city: '', avatar: null, skillLabels: [], availabilityText: '', availabilityDays: null,
+    modeText: room.aiMode === 'on' ? 'Helper, replies to every message'
+      : room.aiMode === 'on-demand' ? 'Helper, answers when a member asks'
+        : 'Helper, switched off in this group'
+  };
+  const members = [...realMembers, aiMember, ...demoMembers];
   const myPid = user ? (user.accountId ? 'a:' + user.accountId : String(user.id)) : null;
   const mine = user ? room.members.find(m => m.pid === myPid) : null;
   const isMember = !!mine || (user ? !!room.members.some(m => m.pid === myPid) : false);
+  // Which lines are the viewer's own is decided here, from the session, so the chat can put them on
+  // the right. The client never gets to claim authorship of a message it did not send.
+  const messages = (room.messages || []).map(x => ({
+    ...x,
+    you: !!(myPid && ((x.authorAccountId && 'a:' + x.authorAccountId === myPid) || (x.authorId && String(x.authorId) === myPid)))
+  }));
   const out = {
     id: room.id, title: room.title, goal: room.goal, description: room.description || null,
     category: room.category || null, visibility: room.visibility || 'public', joinMode: room.joinMode || 'open',
     capacity: room.capacity || 12, capacityUsed: (room.members || []).length + (room.demoMembers || []).length,
     onlineOnly: !!room.onlineOnly, city: room.city || null, ageScope: room.ageScope || null,
     demo: !!room.demo, aiMode: room.aiMode || 'off', createdAt: room.createdAt,
-    members, messages: room.messages || [], myRole: mine ? (mine.role || 'member') : null, isMember
+    members, messages, myRole: mine ? (mine.role || 'member') : null, isMember
   };
   if (isMember) out.inviteCode = room.inviteCode; // invite links are for members to share
   if (!withMessages) {
@@ -539,13 +555,10 @@ async function api(req, res, url) {
       const b = await readBody(req);
       const text = String(b.text == null ? '' : b.text).trim().slice(0, 2000);
       if (!text) return send(res, 400, { error: 'Type a message first.' });
-      if (text.startsWith('/askknot')) {
-        if (room.aiMode === 'off') return send(res, 403, { error: 'AI is off in this group. The owner can turn it on in group settings.' });
-        const question = text.replace(/^\/askknot\s*/, '') || 'Give this group a quick nudge: what should we do next?';
-        const out = await roomAssistant({ room, meProfile: null, question, history: (room.messages || []).slice(-6).map(x => ({ role: x.kind === 'assistant' ? 'assistant' : 'user', content: x.text })) });
-        const msg = await store.addMessage(room, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' });
-        return send(res, 201, { message: msg });
-      }
+      // The client's /ai command is turned into this flag before it leaves the browser, so no slash
+      // syntax ever reaches the server: this is just "also ask KNOT AI about this message".
+      const askAi = b.askAi === true;
+      if (askAi && room.aiMode === 'off') return send(res, 403, { error: 'KNOT AI is off in this group. The owner can turn it on in group settings.' });
       // Moderation BEFORE posting: held content never reaches the room; it files a report instead.
       const mod = await checkMessage(text);
       if (mod.action === 'hold') {
@@ -553,7 +566,7 @@ async function api(req, res, url) {
         return send(res, 422, { error: 'KNOT held this message for review. A group moderator will look at it. If you think this is a mistake, you can report the issue to the organizer instead.', held: true });
       }
       // The author is always this session's principal; anything the client claims about itself is
-      // ignored. "kind" too: only the /askknot, demo-profile and ai_mode paths ever write anything
+      // ignored. "kind" too: only the askAi, demo-profile and ai_mode paths ever write anything
       // other than a member's own message.
       const msg = await store.addMessage(room, {
         userId: user2.accountId ? null : user2.id, accountId: user2.accountId || null,
@@ -569,10 +582,20 @@ async function api(req, res, url) {
           if (out && out.text) replies.push(await store.addMessage(room, { authorName: out.name, text: out.text, kind: 'demo' }));
         } catch { /* the demo is optional; the member message already posted */ }
       }
-      // ai_mode 'on': after each member message, KNOT AI posts one short reply (never as a human).
-      if (room.aiMode === 'on' && !msg.duplicate) {
+      const history = (room.messages || []).slice(-6).map(x => ({ role: x.kind === 'assistant' ? 'assistant' : 'user', content: x.text }));
+      // The member asked KNOT AI something directly, so it answers that question rather than the
+      // room in general. Only ever one AI line per message, never as a human.
+      if (askAi && !msg.duplicate) {
         try {
-          const out = await roomAssistant({ room, meProfile: null, question: 'Respond briefly to the latest message and move the group forward.', history: (room.messages || []).slice(-6).map(x => ({ role: x.kind === 'assistant' ? 'assistant' : 'user', content: x.text })) });
+          const out = await roomAssistant({ room, meProfile: null, question: text, history });
+          replies.push(await store.addMessage(room, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' }));
+        } catch { /* AI is optional; the member message already posted */ }
+      }
+      // ai_mode 'on': after each member message, KNOT AI posts one short reply (never as a human).
+      // Skipped when the member already asked it something, so it never answers twice.
+      if (room.aiMode === 'on' && !askAi && !msg.duplicate) {
+        try {
+          const out = await roomAssistant({ room, meProfile: null, question: 'Respond briefly to the latest message and move the group forward.', history });
           replies.push(await store.addMessage(room, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' }));
         } catch { /* AI is optional; the member message already posted */ }
       }

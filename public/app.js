@@ -72,7 +72,10 @@ async function localRoomApi(path, opts) {
   if (!parts.length && method === 'GET') {
     return { rooms: rooms.filter(r => r.clientId === state.clientId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(brief) };
   }
-  const one = r => ({ ...r, isMember: true, myRole: 'owner', visibility: 'private', joinMode: 'open', aiMode: 'off', capacity: 12, capacityUsed: r.members.length });
+  // Groups saved in this browser have no server, so KNOT AI is listed as switched off: the same
+  // member chip every server-backed group has, with no answer behind it.
+  const aiMember = { id: 'knot-ai', name: 'KNOT AI', role: null, demo: false, you: false, ai: true, city: '', avatar: null, skillLabels: [], availabilityText: '', availabilityDays: null, modeText: 'Helper, switched off in this group' };
+  const one = r => ({ ...r, members: [...r.members, aiMember], isMember: true, myRole: 'owner', visibility: 'private', joinMode: 'open', aiMode: 'off', capacity: 12, capacityUsed: r.members.length });
   if (!parts.length && method === 'POST') {
     const b = body(), dup = rooms.find(r => r.requestId === b.requestId);
     if (dup) return { room: dup, duplicate: true };
@@ -1152,9 +1155,26 @@ async function renderRoom(id) {
   }
 }
 
+// The commands the "/" palette offers in a group chat. They are handled in this file and never
+// posted as text: picking one fills the message box, and sending turns it into a plain message
+// plus an askAi flag.
+const AI_COMMANDS = [
+  { key: 'ai', label: 'Ask KNOT AI', hint: 'Ask a question about this group', fill: '/ai ' },
+  { key: 'plan', label: 'Plan the next steps', hint: 'KNOT AI suggests what the group should do next', fill: '/ai Plan the next steps for this group.' },
+  { key: 'catchup', label: 'Catch me up', hint: 'KNOT AI sums up what the group has decided', fill: '/ai Catch me up on what this group has decided so far.' },
+  { key: 'help', label: 'What can KNOT AI do?', hint: 'Show these commands again', fill: null }
+];
+
 function memberCard(m, room) {
   const me = myProfile();
   const isMod = room.myRole === 'owner' || room.myRole === 'moderator';
+  // KNOT AI is listed with the members, but it is a helper and not a person: nothing to moderate,
+  // nothing to block, and it never counts towards the member cap.
+  if (m.ai) {
+    return `<li class="member ai-member">${markImg(30)}
+      <span class="m-main"><strong>KNOT AI</strong> <span class="role-chip ai">AI</span>
+      <span class="m-detail"><span class="meta">${esc(m.modeText || 'Helper')}</span></span></span></li>`;
+  }
   const canAct = !m.you && (m.demo || m.id);
   const actions = [];
   if (m.you) actions.push('<span class="role-chip">You</span>');
@@ -1172,8 +1192,8 @@ function memberCard(m, room) {
       <div class="member-menu" data-menu-for="${esc(m.id)}" hidden>
         ${room.myRole === 'owner' ? `<button type="button" data-role="${esc(m.id)}" data-roletarget="${m.role === 'moderator' ? 'member' : 'moderator'}">${m.role === 'moderator' ? 'Set as member' : 'Make moderator'}</button>` : ''}
         ${room.myRole === 'owner' ? `<button type="button" data-owner="${esc(m.id)}">Make owner</button>` : ''}
-        ${isMod && m.role !== 'owner' ? `<button type="button" data-kick="${esc(m.id)}">Remove from group</button>` : ''}
-        ${room.myRole === 'owner' && m.role !== 'owner' ? `<button type="button" data-ban="${esc(m.id)}">Remove and keep out</button>` : ''}
+        ${isMod && m.role !== 'owner' ? `<button type="button" data-kick="${esc(m.id)}">Remove (they can rejoin)</button>` : ''}
+        ${room.myRole === 'owner' && m.role !== 'owner' ? `<button type="button" data-ban="${esc(m.id)}">Ban (they cannot rejoin)</button>` : ''}
         <button type="button" data-block="${esc(m.id)}">Block</button>
         <button type="button" data-report="${esc(m.id)}">Report</button>
       </div>`;
@@ -1233,10 +1253,13 @@ function paintRoom(room, isPoll) {
       ${room.isMember ? `
       <form id="msgForm" class="chat-form" novalidate>
         <label class="sr" for="msgInput">Message</label>
-        <input id="msgInput" type="text" maxlength="2000" autocomplete="off" placeholder="Message the group">
-        ${room.aiMode === 'on-demand' ? `<button type="button" class="btn ghost sm" id="askBtn" title="Ask KNOT AI in the group chat">Ask KNOT</button>` : ''}
+        <div class="chat-input-wrap">
+          <div class="cmd-pop" id="cmdPop" role="listbox" aria-label="KNOT AI commands" hidden></div>
+          <input id="msgInput" type="text" maxlength="2000" autocomplete="off" placeholder="${aiOn ? 'Message the group, or type / to ask KNOT AI' : 'Message the group'}" aria-describedby="chatHint">
+        </div>
         <button class="btn primary" type="submit">Send ${icon.send}</button>
       </form>
+      <p class="hint chat-hint" id="chatHint">${aiOn ? 'Type <b>/</b> to ask KNOT AI in this group.' : 'KNOT AI is off here, so it will not answer. The owner can turn it on in group settings.'}</p>
       <p class="msg err" id="msgErr" role="alert" hidden></p>` : ''}
     </div>
     <aside class="members-col" aria-labelledby="mh">
@@ -1254,7 +1277,7 @@ function paintRoom(room, isPoll) {
     if (wasTyping) { inp.focus(); try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch { /* older browsers */ } }
   }
   // wiring
-  const sendMsg = async (text) => {
+  const sendMsg = async (text, opts = {}) => {
     const errBox = $('#msgErr');
     if (errBox) errBox.hidden = true;
     text = text.trim();
@@ -1263,8 +1286,11 @@ function paintRoom(room, isPoll) {
     // optimistic append, replaced on next poll
     const log2 = $('#msgLog');
     if (log2) { log2.insertAdjacentHTML('beforeend', msgBubble({ id: 'tmp', authorId: myPid(), authorName: myProfile().name, text, kind: 'user', ts: new Date().toISOString() })); log2.scrollTop = log2.scrollHeight; }
+    const body = { text, clientMsgId: uid(), authorId: myPid(), authorName: myProfile().name };
+    // Asking KNOT AI is a plain message plus this flag. The "/" is never sent.
+    if (opts.askAi) body.askAi = true;
     try {
-      const out = await api(`/api/rooms/${encodeURIComponent(room.id)}/messages`, { method: 'POST', body: JSON.stringify({ text, clientMsgId: uid(), authorId: myPid(), authorName: myProfile().name }) });
+      const out = await api(`/api/rooms/${encodeURIComponent(room.id)}/messages`, { method: 'POST', body: JSON.stringify(body) });
       // Demo profiles and KNOT AI answer in the same request, so their lines land without a poll.
       if (log2 && out && Array.isArray(out.replies) && out.replies.length) {
         log2.insertAdjacentHTML('beforeend', out.replies.map(msgBubble).join(''));
@@ -1274,12 +1300,86 @@ function paintRoom(room, isPoll) {
       if (errBox) { errBox.innerHTML = icon.alert + `<span>${esc(ex.message)}</span>`; errBox.hidden = false; }
     }
   };
+  // ---- KNOT AI commands ----
+  // The slash commands live only in this browser. A command is turned into a plain message plus an
+  // askAi flag before it is posted, so the server never parses a "/" and nothing typed here can be
+  // read as an instruction by anything else.
+  const cmdPop = $('#cmdPop');
+  const cmdInput = $('#msgInput');
+  let cmdFilter = '';
+  let cmdIndex = 0;
+  let cmdItems = AI_COMMANDS;
+  const paintCommands = () => {
+    if (!cmdPop) return;
+    const q = cmdFilter.toLowerCase();
+    cmdItems = AI_COMMANDS.filter(c => !q || c.key.startsWith(q) || c.label.toLowerCase().includes(q));
+    if (!cmdItems.length) { cmdPop.hidden = true; return; }
+    cmdIndex = Math.max(0, Math.min(cmdIndex, cmdItems.length - 1));
+    cmdPop.innerHTML = cmdItems.map((c, i) => `<button type="button" class="cmd-row${i === cmdIndex ? ' on' : ''}" role="option" aria-selected="${i === cmdIndex}" data-cmd="${i}">
+        <span class="cmd-key">/${esc(c.key)}</span>
+        <span class="cmd-txt"><strong>${esc(c.label)}</strong><span class="cmd-hint">${esc(c.hint)}</span></span></button>`).join('')
+      + '<p class="cmd-foot">These commands stay on this device. Nothing is sent until you press Send.</p>';
+    cmdPop.hidden = false;
+    $$('[data-cmd]', cmdPop).forEach(b => b.addEventListener('mousedown', ev => { ev.preventDefault(); pickCommand(cmdItems[Number(b.dataset.cmd)]); }));
+  };
+  const openCommands = (filter) => { cmdFilter = filter; cmdIndex = 0; paintCommands(); };
+  const closeCommands = () => { if (cmdPop) cmdPop.hidden = true; };
+  const pickCommand = (c) => {
+    if (!c) return;
+    closeCommands();
+    if (!c.fill) { if (cmdInput) { cmdInput.value = ''; cmdInput.focus(); } openCommands(''); return; }
+    if (cmdInput) {
+      cmdInput.value = c.fill;
+      cmdInput.focus();
+      try { cmdInput.setSelectionRange(cmdInput.value.length, cmdInput.value.length); } catch { /* older browsers */ }
+    }
+  };
+  // A typed command, or null when this is an ordinary message.
+  const parseCommand = (raw) => {
+    if (!raw.startsWith('/')) return null;
+    const body = raw.slice(1).trim();
+    if (!body) return { help: true };
+    const sp = body.search(/\s/);
+    const key = (sp === -1 ? body : body.slice(0, sp)).toLowerCase();
+    const rest = sp === -1 ? '' : body.slice(sp).trim();
+    if (!AI_COMMANDS.some(c => c.key === key)) return { unknown: key };
+    if (key === 'help') return { help: true };
+    return { question: rest };
+  };
+  const runCommand = (cmd) => {
+    const errBox = $('#msgErr');
+    const err = (t) => { if (errBox) { errBox.innerHTML = icon.alert + `<span>${esc(t)}</span>`; errBox.hidden = false; } };
+    if (errBox) errBox.hidden = true;
+    if (cmd.help) { if (cmdInput) { cmdInput.value = ''; cmdInput.focus(); } openCommands(''); return; }
+    if (cmd.unknown) { err(`There is no /${cmd.unknown} command. Type / to see what KNOT AI can do.`); return; }
+    if (room.aiMode === 'off') { err('KNOT AI is off in this group. The owner can turn it on in group settings.'); return; }
+    if (!cmd.question) { err('Add your question after /ai, for example /ai what should we do first?'); return; }
+    sendMsg(cmd.question, { askAi: true });
+  };
+  if (cmdInput && cmdPop) {
+    cmdInput.addEventListener('input', () => {
+      const v = cmdInput.value;
+      // The palette is for commands only: it opens on a lone "/" and filters while the first word
+      // is still being typed. Once there is a space it is an ordinary message again.
+      if (!v.startsWith('/') || /\s/.test(v)) { closeCommands(); return; }
+      openCommands(v.slice(1));
+    });
+    cmdInput.addEventListener('keydown', (e) => {
+      if (cmdPop.hidden) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); cmdIndex = (cmdIndex + 1) % cmdItems.length; paintCommands(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); cmdIndex = (cmdIndex - 1 + cmdItems.length) % cmdItems.length; paintCommands(); }
+      else if (e.key === 'Enter') { e.preventDefault(); pickCommand(cmdItems[cmdIndex]); }
+      else if (e.key === 'Escape') { e.preventDefault(); closeCommands(); }
+    });
+    cmdInput.addEventListener('blur', () => setTimeout(closeCommands, 120));
+  }
   const form = $('#msgForm');
-  if (form) form.addEventListener('submit', e => { e.preventDefault(); sendMsg($('#msgInput').value); });
-  const ask = $('#askBtn');
-  if (ask) ask.addEventListener('click', () => {
-    const q = ($('#msgInput').value || '').trim();
-    sendMsg('/askknot ' + (q || 'What should we do next?'));
+  if (form) form.addEventListener('submit', e => {
+    e.preventDefault();
+    const raw = ($('#msgInput').value || '').trim();
+    if (!raw) return;
+    const cmd = parseCommand(raw);
+    if (cmd) runCommand(cmd); else sendMsg(raw);
   });
   const joinHere = $('#joinHereBtn');
   if (joinHere) joinHere.addEventListener('click', async () => {
@@ -1318,8 +1418,14 @@ function paintRoom(room, isPoll) {
     try { await apiRaw(`/api/rooms/${encodeURIComponent(room.id)}/${path}`, { method: 'POST', body: JSON.stringify(payload) }); say(okMsg); renderRoom(room.id); }
     catch (ex) { say(ex.message); }
   };
-  $$('[data-kick]', body).forEach(b => b.addEventListener('click', () => modAct('kick', { pid: b.dataset.kick }, 'Removed from the group.')));
-  $$('[data-ban]', body).forEach(b => b.addEventListener('click', () => modAct('ban', { pid: b.dataset.ban, reason: 'Removed by a moderator' }, 'Removed and kept out.')));
+  $$('[data-kick]', body).forEach(b => b.addEventListener('click', () => {
+    if (!confirm('Remove this person from the group? They can join again with the invite link.')) return;
+    modAct('kick', { pid: b.dataset.kick }, 'Removed. They can join again with the invite link.');
+  }));
+  $$('[data-ban]', body).forEach(b => b.addEventListener('click', () => {
+    if (!confirm('Ban this person? They will not be able to rejoin this group, and you can undo it from the Removed people list.')) return;
+    modAct('ban', { pid: b.dataset.ban, reason: 'Removed by a moderator' }, 'Banned. They cannot rejoin unless you let them back in.');
+  }));
   $$('[data-unban]', body).forEach(b => b.addEventListener('click', () => modAct('unban', { pid: b.dataset.unban }, 'They can join again.')));
   $$('[data-role]', body).forEach(b => b.addEventListener('click', () => modAct('promote', { pid: b.dataset.role, role: b.dataset.roletarget || 'member' }, 'Role updated.')));
   $$('[data-owner]', body).forEach(b => b.addEventListener('click', () => { if (confirm('Make this member the owner? You become a regular member.')) modAct('transfer', { pid: b.dataset.owner }, 'Ownership transferred.'); }));
@@ -1354,9 +1460,10 @@ function openSettings(room) {
     <fieldset class="field"><legend>KNOT AI in this chat</legend>
       <div class="chips">
         <label class="toggle"><input type="radio" name="sAi" value="off" ${room.aiMode === 'off' ? 'checked' : ''}><span>Off</span></label>
-        <label class="toggle"><input type="radio" name="sAi" value="on-demand" ${room.aiMode !== 'off' ? 'checked' : ''}><span>On-demand</span></label>
+        <label class="toggle"><input type="radio" name="sAi" value="on-demand" ${room.aiMode === 'on-demand' || !room.aiMode ? 'checked' : ''}><span>Only when asked</span></label>
+        <label class="toggle"><input type="radio" name="sAi" value="on" ${room.aiMode === 'on' ? 'checked' : ''}><span>Replies to everyone</span></label>
       </div>
-      <p class="hint">On-demand lets members ask KNOT for help with the Ask button. Participants see a notice that AI is on. Default is Off.</p>
+      <p class="hint"><strong>Only when asked</strong> keeps the room quiet: KNOT AI answers a member who types /ai, and never speaks otherwise. <strong>Replies to everyone</strong> answers after every message. Members always see which one is on. Default is Off.</p>
     </fieldset>
     ${isOwner ? `
     <details class="optional"><summary>Visibility and joining</summary>
