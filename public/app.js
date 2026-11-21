@@ -531,7 +531,7 @@ function openAuth(mode = 'in') {
     <div class="field"><label for="aEmail">Email</label><input id="aEmail" type="email" maxlength="120" autocomplete="email" required></div>
     <div class="field"><label for="aPass">Password</label><input id="aPass" type="password" maxlength="200" autocomplete="current-password"></div>`}
     <p class="msg err" id="aAuthErr" role="alert" hidden></p>
-    <div class="dlg-actions">
+    <div class="dlg-actions spread">
       <button type="button" class="btn ghost" id="aSwap">${isUp ? 'I have an account' : 'New here? Create an account'}</button>
       <button type="submit" class="btn primary" id="aSubmit">${isUp ? 'Create account' : 'Sign in'}</button>
     </div></form>`;

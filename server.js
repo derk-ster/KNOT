@@ -220,7 +220,21 @@ async function api(req, res, url) {
         await store.adoptAccount(user.id, account.id);
         await store.updateUser(user.id, { name, isGuest: false });
         return send(res, 201, mePayload(await store.ensureUser(user._sid), account));
-      } catch (e) { return send(res, e.status || 500, { error: e.status ? e.message : 'Could not create the account right now.' }); }
+      } catch (e) {
+        if (e.status === 409) {
+          // Someone who already made this account and pressed Create again should land in the app,
+          // not on a dead end. The password proves it is theirs, exactly as signing in would.
+          const existing = await store.getAccountByEmail(email);
+          if (existing && !existing.deleted && auth.verifyPassword(String(b.password || ''), existing.passwordHash)) {
+            await store.adoptAccount(user.id, existing.id);
+            await store.updateUser(user.id, { name: existing.name, isGuest: false });
+            return send(res, 200, mePayload(await store.ensureUser(user._sid), existing));
+          }
+        }
+        if (e.status) return send(res, e.status, { error: e.message });
+        console.error('KNOT signup error:', e);
+        return send(res, 500, { error: 'Could not create the account right now. Try again in a moment.' });
+      }
     }
     if (m === 'POST' && parts[1] === 'signin') {
       if (!limited(req, 'auth', Number(process.env.KNOT_AUTH_RATE_MAX) || 10)) return send(res, 429, { error: 'Too many attempts. Wait a minute and try again.' });
@@ -580,15 +594,20 @@ async function api(req, res, url) {
     }
     if (canMod && m === 'POST' && parts[2] === 'unban') {
       const b = await readBody(req);
-      await store.unbanMember(room, str(b.pid, 80));
-      await store.addModAction({ actorUser: user2, roomId: room.id, targetPid: str(b.pid, 80), action: 'unban' });
+      const pid = str(b.pid, 80);
+      const bans = await store.listBans(room);
+      if (!bans.some(x => x.pid === pid)) return send(res, 404, { error: 'That member is not banned.' });
+      await store.unbanMember(room, pid);
+      await store.addModAction({ actorUser: user2, roomId: room.id, targetPid: pid, action: 'unban' });
       return send(res, 200, { ok: true });
     }
     if (myRole === 'owner' && m === 'POST' && parts[2] === 'promote') {
       const b = await readBody(req);
+      const pid = str(b.pid, 80);
+      if (!room.members.some(x => x.pid === pid)) return send(res, 404, { error: 'Pick a current member.' });
       const role = b.role === 'moderator' ? 'moderator' : 'member';
-      await store.setMemberRole(room, str(b.pid, 80), role);
-      await store.addModAction({ actorUser: user2, roomId: room.id, targetPid: str(b.pid, 80), action: 'role:' + role });
+      await store.setMemberRole(room, pid, role);
+      await store.addModAction({ actorUser: user2, roomId: room.id, targetPid: pid, action: 'role:' + role });
       return send(res, 200, { ok: true });
     }
     if (myRole === 'owner' && m === 'POST' && parts[2] === 'transfer') {
@@ -699,7 +718,12 @@ const handler = async (req, res) => {
     else if (req.method === 'GET' || req.method === 'HEAD') serveStatic(req, res, url);
     else { res.writeHead(405); res.end(); }
   } catch (e) {
-    if (!res.headersSent) send(res, e.status || 400, { error: e.status ? e.message : (e.message || 'Something went wrong.') });
+    // Errors the routes raise on purpose carry a status and a message written for members.
+    // Anything else is a bug: keep the detail in the server log, show a plain sentence.
+    if (!res.headersSent) {
+      if (e.status) send(res, e.status, { error: e.message });
+      else { console.error('KNOT error:', e); send(res, 500, { error: 'Something went wrong on our side. Try again in a moment.' }); }
+    }
   }
 };
 module.exports = { handler };

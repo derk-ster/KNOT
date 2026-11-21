@@ -83,8 +83,15 @@ test('signup: rejects bad passwords and duplicate emails; sign-in works', async 
   await signup(j, { email, name: 'Ana Adult' });
   const badPw = await post('/api/auth/signup', { email: `x${Date.now()}@test.dev`, password: 'short', name: 'X', confirm18: true }, jar());
   assert.equal(badPw.status, 400, 'weak password rejected');
-  const dup = await post('/api/auth/signup', { email, password: 'hunter2abc', name: 'Ana Adult', confirm18: true }, jar());
+  // A duplicate email with the wrong password is still refused: nothing is revealed about the
+  // account, and pressing Create twice never signs someone into an account that is not theirs.
+  const dup = await post('/api/auth/signup', { email, password: 'notthepass99', name: 'Ana Adult', confirm18: true }, jar());
   assert.equal(dup.status, 409, 'duplicate email rejected');
+  // Pressing Create again with the password that already owns the account lands in the app
+  // instead of a dead end.
+  const again = await post('/api/auth/signup', { email, password: 'hunter2abc', name: 'Ana Adult', confirm18: true }, jar());
+  assert.equal(again.status, 200, 'pressing Create again signs the owner in');
+  assert.equal((await again.json()).signedIn, true);
   const wrong = await post('/api/auth/signin', { email, password: 'wrong-pass-99' }, jar());
   assert.equal(wrong.status, 401, 'wrong password rejected with same message as unknown email');
   const ok = await post('/api/auth/signin', { email, password: 'hunter2abc' }, jar());
