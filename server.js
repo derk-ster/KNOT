@@ -245,8 +245,12 @@ async function api(req, res, url) {
       const b = await readBody(req);
       if (b.name !== undefined && !str(b.name, 40)) return send(res, 400, { error: 'Add a display name.' });
       if (!user.accountId) {
-        // guests can still rename their session
-        if (b.name !== undefined) await store.updateUser(user.id, { name: str(b.name, 40) });
+        // guests can still rename their session, but the name is moderated like any account name
+        if (b.name !== undefined) {
+          const guestMod = await checkMessage(str(b.name, 40));
+          if (guestMod.action === 'hold') return send(res, 422, { error: 'That display name cannot be used. Pick something else.', held: true });
+          await store.updateUser(user.id, { name: str(b.name, 40) });
+        }
         return send(res, 200, mePayload(await store.ensureUser(user._sid), null));
       }
       const fields = {};
@@ -258,8 +262,10 @@ async function api(req, res, url) {
       if (b.city !== undefined) fields.city = str(b.city, 60);
       if (b.availability !== undefined) fields.availability = (Array.isArray(b.availability) ? b.availability : []).map(d => str(d, 12).toLowerCase()).slice(0, 7);
       if (b.mode !== undefined && ['both', 'in-person', 'online'].includes(b.mode)) fields.mode = b.mode;
-      if (fields.bio !== undefined || fields.goals !== undefined) {
-        const mod = await checkMessage([fields.bio, fields.goals].filter(Boolean).join(' '));
+      // The same text-moderation pass as signup: every field that will be shown to other members
+      // (name, bio, goals, interests, city) is checked before anything is saved.
+      if (fields.name !== undefined || fields.bio !== undefined || fields.goals !== undefined || fields.interests !== undefined || fields.city !== undefined) {
+        const mod = await checkMessage([fields.name, fields.bio, fields.goals, (fields.interests || []).join(' '), fields.city].filter(Boolean).join(' '));
         if (mod.action === 'hold') return send(res, 422, { error: 'That text was held for review. Rewrite it and try again.', held: true });
       }
       const account = await store.updateAccount(user.accountId, fields);
@@ -347,7 +353,8 @@ async function api(req, res, url) {
         // real public groups that touch the same topic. Both come from stored data only.
         if (out.result) {
           const user = await getSession(req, res);
-          out.result.people = await peopleForGoal(out.goal, user.accountId || null);
+          // Real member profiles are for signed-in members only; a guest gets none, ever.
+          out.result.people = user.accountId ? await peopleForGoal(out.goal, user.accountId) : [];
           if (!out.result.results.length) out.result.alternativeGroups = await relatedGroups(out.goal, user);
         }
         return send(res, 200, out);
@@ -525,10 +532,11 @@ async function api(req, res, url) {
         await store.addReport({ reporterUser: user2, roomId: room.id, targetPid: myPid, reason: mod.reason, details: 'Automatic hold. Message text: ' + text.slice(0, 500), status: 'open' });
         return send(res, 422, { error: 'KNOT held this message for review. A group moderator will look at it. If you think this is a mistake, you can report the issue to the organizer instead.', held: true });
       }
-      // The author is always this session's principal; anything the client claims about itself is ignored.
+      // The author is always this session's principal; anything the client claims about itself is
+      // ignored. "kind" too: only the /askknot and ai_mode paths above ever write an assistant message.
       const msg = await store.addMessage(room, {
         userId: user2.accountId ? null : user2.id, accountId: user2.accountId || null,
-        authorName: user2.name, text, clientMsgId: str(b.clientMsgId, 60) || null, kind: b.kind
+        authorName: user2.name, text, clientMsgId: str(b.clientMsgId, 60) || null, kind: 'user'
       });
       // ai_mode 'on': after each member message, KNOT AI posts one short reply (never as a human).
       if (room.aiMode === 'on' && !msg.duplicate) {

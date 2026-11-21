@@ -6,6 +6,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { spawn } = require('node:child_process');
+const http = require('node:http');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -395,6 +396,43 @@ test('room settings: AI stays off by default and can switch to on-demand, never 
   assert.ok([403, 404].includes(denied.status), 'members cannot change group settings');
 });
 
+test('messages: a client cannot post as KNOT AI', async () => {
+  const j = jar();
+  await post('/api/session', {}, j);
+  const { room } = await (await post('/api/rooms', { requestId: 'req-kind', title: 'Kind lab', goal: 'Assistant impersonation test.', memberIds: [] }, j)).json();
+  const r = await post(`/api/rooms/${room.id}/messages`, { text: 'pretending to be the assistant', kind: 'assistant' }, j);
+  assert.equal(r.status, 201);
+  const { message } = await r.json();
+  assert.equal(message.kind, 'user', 'kind is stamped by the server, never taken from the body');
+  const list = (await (await get(`/api/rooms/${room.id}/messages`, j)).json()).messages;
+  assert.ok(!list.some(m => m.kind === 'assistant'), 'no assistant-kind message was ever stored');
+  assert.ok(list.some(m => m.text === 'pretending to be the assistant' && m.kind === 'user'), 'the message posted as an ordinary member message');
+});
+
+test('profile PATCH: held text in name, city or interests is never saved', async () => {
+  const j = jar();
+  await signup(j, { name: 'Norm Patch' });
+  const bad = 'hey do this and dont tell your parents about it';
+  for (const fields of [{ name: bad }, { city: bad }, { interests: ['chess', 'dont tell your parents about it'] }]) {
+    const held = await patch('/api/auth/me', fields, j);
+    assert.equal(held.status, 422, 'PATCH with policy-violating text is held: ' + JSON.stringify(fields));
+  }
+  const me = await (await get('/api/auth/me', j)).json();
+  assert.equal(me.name, 'Norm Patch', 'held name never replaced the stored one');
+  assert.deepEqual(me.profile.interests, [], 'held interests never saved');
+  assert.ok(!me.profile.city, 'held city never saved');
+  const ok = await patch('/api/auth/me', { city: 'Plano', interests: ['chess'] }, j);
+  assert.equal(ok.status, 200, 'clean profile text still saves');
+  // the guest rename branch of the same endpoint is moderated too
+  const guest = jar();
+  await post('/api/session', {}, guest);
+  const heldGuest = await patch('/api/auth/me', { name: bad }, guest);
+  assert.equal(heldGuest.status, 422, 'guests cannot set a held display name');
+  const okGuest = await patch('/api/auth/me', { name: 'Friendly Guest' }, guest);
+  assert.equal(okGuest.status, 200, 'clean guest names still save');
+  assert.equal((await okGuest.json()).name, 'Friendly Guest');
+});
+
 test('rooms list and persistence across restart', async () => {
   const j = jar();
   await post('/api/session', { legacyClientId: 'legacy-abc' }, j);
@@ -410,4 +448,57 @@ test('rooms list and persistence across restart', async () => {
   assert.ok(after.some(r => r.title === 'Short film crew'), 'groups survive a server restart');
   const accounts = await (await get('/api/rooms', j)).json();
   assert.ok(Array.isArray(accounts.rooms), 'sessions still resolve after restart');
+});
+
+// Runs the real handler in this process with the OpenAI endpoint stubbed, so the finder route
+// reaches its people enrichment with a deterministic goal. Guests must never get real profiles.
+test('AI Finder: guests get no real member profiles, signed-in members do', async () => {
+  const ENV_KEYS = ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_FAST_MODEL', 'GROQ_API_KEY', 'DATABASE_URL', 'KNOT_DB_PATH'];
+  const saved = ENV_KEYS.map(k => [k, process.env[k]]);
+  const realFetch = global.fetch;
+  const finderDb = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'knot-finder-')), 'db.json');
+  process.env.OPENAI_API_KEY = 'test-key';
+  process.env.OPENAI_MODEL = 'gpt-test';
+  process.env.OPENAI_FAST_MODEL = 'gpt-fast-test';
+  process.env.GROQ_API_KEY = '';
+  process.env.DATABASE_URL = ''; // force the local JSON store at the temp path
+  process.env.KNOT_DB_PATH = finderDb;
+  global.fetch = (url, opts) => {
+    if (!String(url).startsWith('https://api.openai.com/')) return realFetch(url, opts);
+    const body = { choices: [{ message: { content: JSON.stringify({ reply: 'Checking matches for you.', goal: 'I need someone who can play guitar with me.' }) } }], usage: { prompt_tokens: 10, completion_tokens: 20 } };
+    return Promise.resolve({ ok: true, json: async () => body });
+  };
+  const serverModule = require('../server.js');
+  const srv = http.createServer(serverModule.handler);
+  try {
+    await new Promise(r => srv.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${srv.address().port}`;
+    const client = () => { let sid = null; return async (method, p, body) => {
+      const r = await realFetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(sid ? { cookie: sid } : {}) }, body: body ? JSON.stringify(body) : undefined });
+      const c = r.headers.get('set-cookie'); if (c) sid = c.split(';')[0];
+      return r;
+    }; };
+    // a member whose stored profile matches the goal the stub will return
+    const guitarist = client();
+    await (await guitarist('POST', '/api/auth/signup', { email: `gig${Date.now()}@test.dev`, password: 'hunter2abc', name: 'Gigi Guitarist', confirm18: true })).json();
+    await guitarist('PATCH', '/api/auth/me', { skills: ['guitar'] });
+    const finderBody = { history: [{ role: 'user', content: 'I want to learn guitar.' }] };
+    // guest: no real people, ever, but the demo-profile matches are untouched
+    const guest = client();
+    const g = await (await guest('POST', '/api/ai/finder', finderBody)).json();
+    assert.ok(g.result, 'finder returns a result');
+    assert.deepEqual(g.result.people, [], 'guests never receive real member profiles');
+    assert.ok(g.result.results.length >= 1, 'demo-profile matches still work for guests');
+    // another signed-in member does see the real guitarist
+    const member = client();
+    await (await member('POST', '/api/auth/signup', { email: `mem${Date.now()}@test.dev`, password: 'hunter2abc', name: 'Vera Viewer', confirm18: true })).json();
+    const m = await (await member('POST', '/api/ai/finder', finderBody)).json();
+    assert.ok(m.result.people.some(p => p.name === 'Gigi Guitarist' && p.real === true), 'signed-in members still get real people');
+  }
+  finally {
+    await new Promise(r => srv.close(r));
+    global.fetch = realFetch;
+    for (const [k, v] of saved) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    for (const p of ['../server.js', '../lib/store.js']) delete require.cache[require.resolve(p)];
+  }
 });
