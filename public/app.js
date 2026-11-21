@@ -89,13 +89,14 @@ function renderHome(initial) {
     <section class="hero" aria-labelledby="h1">
       <div class="hero-copy">
         <h1 id="h1">What do you want to do?</h1>
+        <div class="goal-wrap"><i class="ring" aria-hidden="true"></i><i class="ring r2" aria-hidden="true"></i><i class="ring r3" aria-hidden="true"></i>
         <form id="goalForm" class="goal-form" novalidate>
           <textarea id="goal" rows="2" maxlength="500" autocomplete="off" spellcheck="true" aria-labelledby="h1" aria-describedby="goalHelp goalErr" placeholder="${esc(PLACEHOLDER)}"></textarea>
           <div class="goal-row">
             <p id="goalHelp" class="hint">Say what, where and when. KNOT looks for people with the skills you need.</p>
             <button class="btn primary" id="findBtn" type="submit"><span class="btn-label">Find my people</span></button>
           </div>
-        </form>
+        </form></div>
         <p id="goalErr" class="msg err" role="alert" hidden></p>
         <div class="examples"><span class="ex-label">Try an example</span>
           ${EXAMPLES.map((e, i) => `<button type="button" class="chip example" data-i="${i}">${esc(e)}</button>`).join('')}
