@@ -56,30 +56,24 @@
     w._size = size; floaters.appendChild(w); return w;
   });
 
-  function avoidRect() {
-    const home = document.querySelector('.hero-copy');
-    const r = (home || document.getElementById('main')).getBoundingClientRect();
-    const hdr = document.querySelector('.site-header').getBoundingClientRect();
-    const art = document.querySelector('.hero-art'), ar = art && art.getBoundingClientRect(), list = ar ? [{ l: ar.left, t: ar.top, r: ar.right, b: ar.bottom }] : [];
-    return list.concat([{ l: r.left - 28, t: r.top - 28, r: r.right + 28, b: r.bottom + 28 }, { l: hdr.left, t: -999, r: hdr.right, b: hdr.bottom }]);
-  }
+  // Layout is route-independent so nothing jumps when you navigate or results appear:
+  // on wide screens each icon lives in the empty gutter beside the content column; on narrow screens
+  // icons peek in from the left/right edges (always behind the content).
+  els.forEach((w, i) => { w._side = i % 2; w._fx = rnd(); w._fy = (Math.floor(i / 2) + .15 + rnd() * .7) / Math.ceil(els.length / 2); });
   function place() {
-    const W = innerWidth, H = innerHeight, avoid = avoidRect(), placed = [];
+    const W = innerWidth, H = innerHeight, gut = (W - Math.min(W, 920)) / 2, wide = gut >= 90;
+    els.forEach((w, i) => { w.style.display = wide || i < 5 ? '' : 'none'; });
     for (const w of els) {
-      const sz = w._size; let ok = false;
-      for (let i = 0; i < 60 && !ok; i++) {
-        const x = between(8, W - sz - 8), y = between(70, H - sz - 8), box = { l: x - 22, t: y - 40, r: x + sz + 22, b: y + sz + 40 };
-        const hit = avoid.some(a => box.l < a.r && box.r > a.l && box.t < a.b && box.b > a.t) || placed.some(p => box.l < p.r && box.r > p.l && box.t < p.b && box.b > p.t);
-        if (!hit) { w.style.left = x + 'px'; w.style.top = y + 'px'; placed.push(box); ok = true; }
-      }
-      w.hidden = !ok;
+      const sz = wide ? Math.min(w._size, gut - 36) : Math.min(w._size, 84);
+      w.style.width = w.style.height = sz + 'px';
+      let x;
+      if (wide) { const room = Math.max(0, gut - sz - 20); x = w._side ? W - gut + 10 + w._fx * room : 10 + w._fx * room; }
+      else x = w._side ? W - sz * (.35 + w._fx * .2) : -sz * (.45 + w._fx * .2);
+      w.style.left = x.toFixed(0) + 'px'; w.style.top = (70 + w._fy * (H - sz - 110)).toFixed(0) + 'px';
     }
   }
-  const relayout = () => requestAnimationFrame(() => requestAnimationFrame(place));
   let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { place(); sizeCanvas(); }, 150); });
-  addEventListener('hashchange', () => { relayout(); setTimeout(place, 350); });
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(relayout);
-  relayout();
+  place();
 
   // Point network
   const ctx = canvas.getContext('2d');

@@ -90,10 +90,10 @@ function renderHome(initial) {
   const main = $('#main');
   main.innerHTML = `
   <div id="home" class="home">
-    <svg id="strands" class="strands" aria-hidden="true" focusable="false"></svg>
     <section class="hero" aria-labelledby="h1">
       <div class="hero-copy">
-        <h1 id="h1" class="mega"><span class="w w1">What do</span> <span class="you">you</span> <span class="w w3">want to do?</span></h1>
+        <div class="h1-wrap"><div class="hero-art" aria-hidden="true"><img class="hero-knot" src="assets/art/hero-knot.png" width="1200" height="311" alt=""></div>
+        <h1 id="h1" class="mega"><span class="w w1">What do</span> <span class="you">you</span> <span class="w w3">want to do?</span></h1></div>
         <div class="goal-wrap"><i class="ring" aria-hidden="true"></i><i class="ring r2" aria-hidden="true"></i><i class="ring r3" aria-hidden="true"></i>
         <form id="goalForm" class="goal-form" novalidate>
           <textarea id="goal" rows="2" maxlength="500" autocomplete="off" spellcheck="true" aria-labelledby="h1" aria-describedby="goalHelp goalErr" placeholder="${esc(PLACEHOLDER)}"></textarea>
@@ -106,9 +106,6 @@ function renderHome(initial) {
         <div class="examples"><span class="ex-label">Try an example</span>
           ${EXAMPLES.map((e, i) => `<button type="button" class="chip example" data-i="${i}">${esc(e)}</button>`).join('')}
         </div>
-      </div>
-      <div class="hero-art" aria-hidden="true">
-        <img class="hero-knot" src="assets/art/hero-knot.png" width="1200" height="311" alt="">
       </div>
     </section>
 
@@ -146,7 +143,6 @@ function renderHome(initial) {
   $('#interp').addEventListener('click', onRelaxClick);
   $('#empty').addEventListener('click', onRelaxClick);
   $('#createBtn').addEventListener('click', openCreate);
-  window.addEventListener('resize', scheduleStrands);
 
   if (state.resp) { renderResults(state.resp, true); }
   else if (store.get('knot.searched', false) && state.goal.trim() && state.me) findPeople();
@@ -226,7 +222,7 @@ function renderResults(resp, restoring) {
       <p class="small">Your goal stays exactly as you typed it. Edit it above or relax a requirement.</p></div>`;
   } else { empty.hidden = true; empty.innerHTML = ''; }
 
-  updateCreateBar(); scheduleStrands();
+  updateCreateBar();
   if (!restoring) {
     if (scrollY !== y) scrollTo(0, y);
     if (active && active !== document.body && !document.contains(active)) $('#goal').focus({ preventScroll: true });
@@ -286,14 +282,13 @@ function onResultsClick(e) {
   const b = e.target.closest('.why-btn'); if (!b) return;
   const li = b.closest('li'); const open = b.getAttribute('aria-expanded') !== 'true';
   b.setAttribute('aria-expanded', open); $('.why', li).hidden = !open; li.dataset.open = open ? '1' : '0';
-  scheduleStrands();
 }
 function onResultsChange(e) {
   const cb = e.target.closest('input[type=checkbox]'); if (!cb) return;
   const li = cb.closest('li'); const id = li.dataset.id;
   cb.checked ? state.selected.add(id) : state.selected.delete(id);
   li.classList.toggle('selected', cb.checked);
-  updateCreateBar(); scheduleStrands();
+  updateCreateBar();
 }
 
 function selectedResults() { return (state.resp ? state.resp.results : []).filter(r => state.selected.has(r.id)); }
@@ -307,31 +302,6 @@ function updateCreateBar() {
   }
 }
 
-// ---------- thread: strands from goal to selected people ----------
-let strandRaf = 0;
-function scheduleStrands() { cancelAnimationFrame(strandRaf); strandRaf = requestAnimationFrame(drawStrands); }
-const strandPaths = new Map();
-function drawStrands() {
-  const svg = $('#strands'), home = $('#home'); if (!svg || !home) return;
-  if (innerWidth < 900) { svg.innerHTML = ''; strandPaths.clear(); return; }
-  const hr = home.getBoundingClientRect(), g = $('.goal-wrap').getBoundingClientRect();
-  const ax = g.left - hr.left - 34, sx = g.left - hr.left + 8, ay = g.top - hr.top + g.height / 2;
-  svg.setAttribute('width', hr.width); svg.setAttribute('height', hr.height);
-  const want = new Set();
-  $$('#results li.selected').forEach(li => {
-    const box = $('.box', li).getBoundingClientRect(); const id = li.dataset.id; want.add(id);
-    const tx = li.getBoundingClientRect().left - hr.left + 2, ty = box.top - hr.top + box.height / 2;
-    const d = `M${sx} ${ay} C${ax} ${ay + 30}, ${ax} ${ty - 120}, ${tx - 12} ${ty - 6} S${tx - 6} ${ty}, ${tx} ${ty}`;
-    let p = strandPaths.get(id);
-    if (!p) {
-      p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      p.setAttribute('pathLength', '1'); p.setAttribute('class', 'strand'); svg.appendChild(p); strandPaths.set(id, p);
-      if (!reduceMotion()) { p.style.strokeDasharray = '1'; p.style.strokeDashoffset = '1'; p.getBoundingClientRect(); p.style.transition = 'stroke-dashoffset 380ms cubic-bezier(.2,.7,.2,1)'; requestAnimationFrame(() => { p.style.strokeDashoffset = '0'; }); }
-    }
-    p.setAttribute('d', d);
-  });
-  strandPaths.forEach((p, id) => { if (!want.has(id)) { p.remove(); strandPaths.delete(id); } });
-}
 
 // ---------- PROFILE ----------
 function openProfile(opts = {}) {
@@ -411,7 +381,7 @@ function openCreate() {
     busy = true; const btn = $('#gSubmit'); btn.disabled = true; btn.textContent = 'Creating…'; btn.setAttribute('aria-busy', 'true');
     try {
       const { room } = await api('/api/rooms', { method: 'POST', body: JSON.stringify({ requestId: createRequestId, clientId: state.clientId, ownerName: state.me.name, ownerSkills: state.me.skills, title, goal: state.goal.trim(), memberIds: sel.map(s => s.id) }) });
-      d.close(); state.selected.clear(); strandPaths.clear();
+      d.close(); state.selected.clear();
       await playKnot(room);
       location.hash = '#/room/' + room.id;
     } catch (err) {

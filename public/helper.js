@@ -21,6 +21,14 @@
   const $ = s => root.querySelector(s);
   const panel = $('#helpPanel'), fab = $('#helpFab'), log = $('#helpLog'), input = $('#helpInput');
   const history = []; let busy = false;
+  // Keep the help button clear of the floating "Create group" bar, whatever height it wraps to.
+  let barRaf = 0;
+  function syncBar() {
+    cancelAnimationFrame(barRaf);
+    barRaf = requestAnimationFrame(() => { const b = document.getElementById('createBar'); document.documentElement.style.setProperty('--bar-h', b && !b.hidden ? (b.offsetHeight + 16) + 'px' : '0px'); });
+  }
+  new MutationObserver(syncBar).observe(document.getElementById('main'), { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
+  addEventListener('resize', syncBar); syncBar();
 
   const add = (cls, text) => { const d = document.createElement('div'); d.className = 'hb ' + cls; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d; };
   function open(v) {
