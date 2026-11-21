@@ -438,8 +438,16 @@ async function paintHomeGroups(limit = 3) {
   }
   try {
     const { groups } = await apiRaw('/api/groups');
-    if (!groups.length) { box.innerHTML = `<p class="hint">No public groups yet. Create one and it shows up here.</p>`; return; }
-    box.innerHTML = groups.slice(0, limit).map(g => `
+    // The API already leaves out groups this member is in; a full group is not one you could join
+    // either, so it drops off this list too.
+    const open = groups.filter(g => g.memberCount < g.capacity);
+    if (!open.length) {
+      box.innerHTML = `<div class="empty small-pad"><div><h3>Nothing open to join yet</h3>
+        <p>Public groups from other members show up here while they have space. Your own groups are in My groups.</p>
+        <a class="btn ghost sm" href="#/groups">My groups</a></div></div>`;
+      return;
+    }
+    box.innerHTML = open.slice(0, limit).map(g => `
       <a class="group-card" href="#/room/${esc(g.id)}">
         <span class="gc-top"><strong>${esc(g.title)}</strong><span class="meta">${g.memberCount}/${g.capacity} members · ${g.onlineOnly ? 'online' : (g.city ? esc(g.city) : 'in person')}</span></span>
         <span class="gc-goal">${esc(g.description || g.goal)}</span>
@@ -675,7 +683,7 @@ async function renderDiscover() {
             <span class="gc-goal">${esc(g.description || g.goal)}</span>
             <span class="gc-actions"><button type="button" class="btn primary sm" data-join="${esc(g.id)}">${g.joinMode === 'request' ? 'Ask to join' : 'Join'}</button></span>
           </div>`).join('')}</div>`
-        : `<div class="empty"><div><h2>Nothing here yet</h2><p>No public groups match. Groups you create can show up here for others.</p></div></div>`}`;
+        : `<div class="empty"><div><h2>Nothing to join yet</h2><p>No public groups match. This list is groups from other members that you are not in; your own groups are in My groups.</p><a class="btn ghost sm" href="#/groups">My groups</a></div></div>`}`;
     } else {
       const list = people.filter(p => !q || [p.name, p.bio, p.goals, p.city, ...(p.interests || []), ...(p.skillLabels || [])].filter(Boolean).join(' ').toLowerCase().includes(ql));
       body.innerHTML = `

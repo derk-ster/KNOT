@@ -283,12 +283,30 @@ test('discovery: guests get 401; accounts see real public groups, never demo san
   await signup(adult, { email: `dadult${Date.now()}@test.dev`, name: 'Dan Adult' });
   assert.equal((await get('/api/groups', guest)).status, 401, 'guests cannot browse discovery');
   const adultRoom = await (await post('/api/rooms', { requestId: 'd-adult', title: 'Disco crew', goal: 'Public group for discovery.', memberIds: [], ageScope: 'adult' }, adult)).json();
-  const adultView = await (await get('/api/groups', adult)).json();
-  assert.ok(adultView.groups.some(g => g.id === adultRoom.room.id), 'account sees their own public group');
+  const ownView = await (await get('/api/groups', adult)).json();
+  assert.ok(!ownView.groups.some(g => g.id === adultRoom.room.id), 'your own group is not offered back to you as one to join');
+  const browser = jar();
+  await signup(browser, { email: `dbrowse${Date.now()}@test.dev`, name: 'Bea Browser' });
+  const adultView = await (await get('/api/groups', browser)).json();
+  assert.ok(adultView.groups.some(g => g.id === adultRoom.room.id), 'another account sees it as joinable');
   assert.ok(!adultView.groups.some(g => g.demo), 'demo groups never appear in discovery');
   const guestDemo = await (await post('/api/rooms', { requestId: 'd-demo', title: 'Sandbox', goal: 'Guest demo group.', memberIds: ['maya-okafor'] }, guest)).json();
   assert.ok(guestDemo.room.demo === true);
   assert.ok(!adultView.groups.some(g => g.id === guestDemo.room.id), 'guest sandbox stays out of discovery');
+});
+
+test('discovery lists groups you could join, never the ones you are already in', async () => {
+  const owner = jar(), other = jar();
+  await signup(owner, { name: 'Owner One' });
+  await signup(other, { name: 'Owner Two' });
+  const mine = (await (await post('/api/rooms', { requestId: 'req-join-1', title: 'Mine to own', goal: 'A group I own.', memberIds: [] }, owner)).json()).room;
+  const theirs = (await (await post('/api/rooms', { requestId: 'req-join-2', title: 'Theirs to join', goal: 'A group to join.', memberIds: [] }, other)).json()).room;
+  const seenByOwner = (await (await get('/api/groups', owner)).json()).groups;
+  assert.ok(seenByOwner.some(g => g.id === theirs.id), 'another member public group is listed');
+  assert.ok(!seenByOwner.some(g => g.id === mine.id), 'your own group is not listed as one to join');
+  const seenByOther = (await (await get('/api/groups', other)).json()).groups;
+  assert.ok(seenByOther.some(g => g.id === mine.id));
+  assert.ok(!seenByOther.some(g => g.id === theirs.id));
 });
 
 test('reports: filed by any visitor and visible in the admin console', async () => {
@@ -410,7 +428,9 @@ test('group text: descriptions are moderated, held group names are never created
   assert.ok(!list.rooms.some(r => r.title === 'Sneaky club'), 'the held group does not exist');
   const ok = await post('/api/rooms', { requestId: 'req-desc-ok', title: 'Board game night', goal: 'Weekly board games in Plano.', memberIds: [], description: 'Casual weekly meetups, all skill levels.' }, j);
   assert.equal(ok.status, 201);
-  const pub = await (await get('/api/groups', j)).json();
+  const viewer = jar();
+  await signup(viewer, { name: 'Bea Viewer' });
+  const pub = await (await get('/api/groups', viewer)).json();
   const found = pub.groups.find(g => g.title === 'Board game night');
   assert.ok(found && found.description === 'Casual weekly meetups, all skill levels.', 'description shows in discovery');
 });
