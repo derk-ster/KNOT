@@ -131,15 +131,27 @@ main#main { min-height: 60vh; }
   opacity: .13;
   pointer-events: none; user-select: none;
   z-index: 0;
-  /* The artwork is a rectangle, so its own edges would read as a hard box behind the text.
-     Two crossed fades melt all four sides into the page and leave the curves untouched. */
+  /* The artwork is a rectangle whose ribbon runs right off its own canvas, so both the canvas
+     edge and the edge of the screen would read as hard cuts. Three crossed fades melt them away:
+     the first sits on the artwork and dissolves its canvas edge, the second is pinned to the
+     viewport (100vw, centred) and is what actually reaches zero at the screen edge on phones,
+     where the artwork is wider than the screen and most of the first ramp falls outside it.
+     The third does the same job top and bottom. */
   -webkit-mask-image:
-    linear-gradient(to right, transparent 0, #000 15%, #000 85%, transparent 100%),
+    linear-gradient(to right, transparent 0, #000 16%, #000 84%, transparent 100%),
+    linear-gradient(to right, transparent 0, #000 max(96px, 13%), #000 calc(100% - max(96px, 13%)), transparent 100%),
     linear-gradient(to bottom, transparent 0, #000 16%, #000 84%, transparent 100%);
+  -webkit-mask-size: 100% 100%, 100vw 100%, 100% 100%;
+  -webkit-mask-position: center, center, center;
+  -webkit-mask-repeat: no-repeat, no-repeat, no-repeat;
   -webkit-mask-composite: source-in;
   mask-image:
-    linear-gradient(to right, transparent 0, #000 15%, #000 85%, transparent 100%),
+    linear-gradient(to right, transparent 0, #000 16%, #000 84%, transparent 100%),
+    linear-gradient(to right, transparent 0, #000 max(96px, 13%), #000 calc(100% - max(96px, 13%)), transparent 100%),
     linear-gradient(to bottom, transparent 0, #000 16%, #000 84%, transparent 100%);
+  mask-size: 100% 100%, 100vw 100%, 100% 100%;
+  mask-position: center, center, center;
+  mask-repeat: no-repeat, no-repeat, no-repeat;
   mask-composite: intersect;
 }
 .hero-headline h1 { position: relative; z-index: 1; }
