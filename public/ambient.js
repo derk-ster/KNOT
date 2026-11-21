@@ -44,6 +44,32 @@
     blobs.appendChild(b);
   }
 
+  // Small glows: they pulse and drift so there is always something soft catching the eye.
+  const nSmall = 7 + Math.floor(rnd() * 5);
+  for (let i = 0; i < nSmall; i++) {
+    const b = document.createElement('i'), size = between(11, 24);
+    b.className = 'small';
+    b.style.cssText = `left:${between(0, 96).toFixed(1)}%;top:${between(0, 96).toFixed(1)}%;width:${size.toFixed(0)}vmax;height:${size.toFixed(0)}vmax;--c:${cols[i % 3]};--o:${between(.28, .5).toFixed(2)};--dx:${between(-10, 10).toFixed(1)}vw;--dy:${between(-10, 10).toFixed(1)}vh;--sc:${between(.8, 1.3).toFixed(2)};animation-duration:${between(9, 20).toFixed(1)}s, ${between(3.5, 7).toFixed(1)}s;animation-delay:${(-rnd() * 12).toFixed(1)}s, ${(-rnd() * 5).toFixed(1)}s`;
+    blobs.appendChild(b);
+  }
+
+  // Document glows: small glows spread down the whole page, so scrolling keeps revealing new ones.
+  const docLayer = document.createElement('div'); docLayer.className = 'docglows'; docLayer.setAttribute('aria-hidden', 'true');
+  document.body.prepend(docLayer);
+  let docY = 160;
+  function fillDocGlows() {
+    const H = Math.max(document.documentElement.scrollHeight, innerHeight);
+    while (docY < H + 200) {
+      const g = document.createElement('i'), size = between(160, 340), sideBias = rnd() < .65;
+      const x = sideBias ? (rnd() < .5 ? between(-6, 16) : between(70, 96)) : between(20, 70);
+      g.style.cssText = `top:${docY.toFixed(0)}px;left:${x.toFixed(1)}%;width:${size.toFixed(0)}px;height:${size.toFixed(0)}px;--c:${pick(cols)};--o:${between(.22, .42).toFixed(2)};animation-duration:${between(4, 8).toFixed(1)}s;animation-delay:${(-rnd() * 6).toFixed(1)}s`;
+      docLayer.appendChild(g); docY += between(380, 640);
+    }
+  }
+  let dg; const queueDocGlows = () => { clearTimeout(dg); dg = setTimeout(fillDocGlows, 250); };
+  fillDocGlows();
+  if (window.ResizeObserver) new ResizeObserver(queueDocGlows).observe(document.body); else addEventListener('resize', queueDocGlows);
+
   // Floating art (behind the content; placed outside the text area, small drift around its anchor)
   const ART = ['artists_palette', 'basketball', 'camera_video', 'headphones', 'heart', 'heart_chat', 'laptop', 'microphone', 'navigation_arrow', 'paper_plane', 'puzzle_piece', 'sparkle'];
   const chosen = shuffle(ART).slice(0, 8 + Math.floor(rnd() * 4));

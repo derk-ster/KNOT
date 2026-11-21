@@ -9,6 +9,7 @@ const { db, save } = require('./lib/store');
 const groq = require('./lib/groq');
 const { finderTurn, helpTurn } = require('./lib/ai');
 const { examplesFor } = require('./lib/examples');
+const guide = require('./lib/guide');
 const { profiles, SKILLS, SKILL_BY_ID, matchGoal, buildAssist, cap } = require('./lib/match');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -59,12 +60,12 @@ async function api(req, res, url) {
   if (m === 'POST' && parts[0] === 'ai') {
     if (!limited(req)) return send(res, 429, { error: 'Slow down a little and try again in a minute.' });
     const b = await readBody(req);
-    if (parts[1] === 'help') return send(res, 200, await helpTurn({ history: b.history }));
+    if (parts[1] === 'help') return send(res, 200, await helpTurn({ history: b.history, context: b.context }));
     if (parts[1] === 'finder') {
       if (!groq.enabled()) return send(res, 503, { error: 'The AI Finder is not configured on this server. Use the Home page to describe your goal instead.' });
       const me = b.me || {};
       const clean = { skills: (Array.isArray(me.skills) ? me.skills : []).filter(id => SKILL_IDS.has(id)), availability: [] };
-      try { return send(res, 200, await finderTurn({ history: b.history, me: clean })); }
+      try { const out = await finderTurn({ history: b.history, me: clean }); out.next = guide.fromFinder(out); return send(res, 200, out); }
       catch (e) { return send(res, e.status || 502, { error: e.status ? e.message : `The AI Finder is unavailable (${e.message}). Your messages are still here; try again, or use the Home page.` }); }
     }
     return send(res, 404, { error: 'Not found' });
@@ -82,7 +83,9 @@ async function api(req, res, url) {
     if (!goal) return send(res, 400, { error: 'Add a goal first.' });
     const me = b.me || {};
     const clean = { skills: (Array.isArray(me.skills) ? me.skills : []).filter(id => SKILL_IDS.has(id)), availability: (Array.isArray(me.availability) ? me.availability : []).map(d => str(d, 12).toLowerCase()).slice(0, 7) };
-    return send(res, 200, matchGoal({ goal, me: clean, relaxed: Array.isArray(b.relaxed) ? b.relaxed.slice(0, 5) : [] }));
+    const out = matchGoal({ goal, me: clean, relaxed: Array.isArray(b.relaxed) ? b.relaxed.slice(0, 5) : [] });
+    out.next = guide.fromMatch({ goal, hasProfile: clean.skills.length > 0, results: out.results, empty: out.empty });
+    return send(res, 200, out);
   }
 
   if (parts[0] === 'rooms') {
@@ -110,7 +113,7 @@ async function api(req, res, url) {
     }
     const room = db.rooms.find(r => r.id === parts[1]);
     if (!room) return send(res, 404, { error: 'This group could not be found. It may have been created in another browser or on another computer. Open My groups to see the groups saved in this browser.' });
-    if (m === 'GET' && parts.length === 2) return send(res, 200, { room: publicRoom(room, true) });
+    if (m === 'GET' && parts.length === 2) return send(res, 200, { room: publicRoom(room, true), next: guide.fromRoom(room) });
     if (m === 'POST' && parts[2] === 'messages') {
       const b = await readBody(req);
       const text = String(b.text == null ? '' : b.text).trim().slice(0, 2000);

@@ -71,6 +71,49 @@ async function refreshGroupCount() {
   } catch { return []; }
 }
 
+
+// ---------- guidance: highlight the one control the user should use next ----------
+// The server (lib/guide.js) names the next step for the current situation; this maps it to a control.
+const NEXT_SEL = {
+  goal: '.goal-wrap', find: '#findBtn', profile: '#profileBtn', need: '[data-edit=need]', offer: '[data-edit=offer]',
+  relax: '#empty [data-relax]', pick: '#results .pick:not(:has(input:checked))', create: '#createBtn', open: '#fLog [data-open]',
+  assist: '#assistBtn', finderInput: '#fInput', startFind: '#groupList .btn.primary'
+};
+function currentNext() {
+  const h = location.hash || '#/';
+  if (h === '#/') {
+    if (!$('#goal')) return null;
+    if (!state.goal.trim()) return { target: 'goal' };
+    if (!state.me) return { target: 'find' };
+    if (!state.resp || $('#resultsSection').hidden) return { target: 'find' };
+    if (state.selected.size) return { target: 'create' };
+    return state.resp.next || { target: 'pick' };
+  }
+  if (h === '#/finder') {
+    const it = state.finder.items, last = it[it.length - 1];
+    return last && last.role === 'assistant' && last.result ? { target: 'open' } : { target: 'finderInput' };
+  }
+  if (h === '#/groups') return $('#groupList .empty') ? { target: 'startFind' } : null;
+  if (h.startsWith('#/room/')) return state.roomNext || null;
+  return null;
+}
+function applyNext() {
+  $$('.next').forEach(e => e.classList.remove('next'));
+  const n = currentNext(); if (!n) return;
+  [n.target, ...(n.also || [])].forEach(tg => {
+    const sel = NEXT_SEL[tg]; if (!sel) return;
+    (tg === 'relax' ? $$(sel) : [$(sel)]).forEach(el => el && el.classList.add('next'));
+  });
+}
+let nxRaf = 0;
+const queueNext = () => { cancelAnimationFrame(nxRaf); nxRaf = requestAnimationFrame(applyNext); };
+window.knotNext = () => currentNext();
+window.knotHighlight = target => {   // used by Help AI: pulse the control hard and bring it into view
+  const el = NEXT_SEL[target] && $(NEXT_SEL[target]); if (!el) return false;
+  el.classList.add('next', 'next-hard'); el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  setTimeout(() => el.classList.remove('next-hard'), 6000); return true;
+};
+
 // ---------- routing ----------
 function route(initial) {
   stopPoll();
@@ -82,6 +125,7 @@ function route(initial) {
   else if (h === '#/finder') renderFinder();
   else renderHome(initial);
   refreshGroupCount();
+  setTimeout(queueNext, 150);
 }
 window.addEventListener('hashchange', () => route(false));
 
@@ -155,7 +199,7 @@ function renderHome(initial) {
   goal.value = state.goal;
   goal.addEventListener('input', () => {
     if (state.goal !== goal.value) { state.relaxed = []; }
-    state.goal = goal.value; store.set('knot.goal', state.goal); hideErr('#goalErr'); scheduleExamples();
+    state.goal = goal.value; store.set('knot.goal', state.goal); hideErr('#goalErr'); scheduleExamples(); queueNext();
   });
   goal.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); findPeople(); } });
   $('#goalForm').addEventListener('submit', e => { e.preventDefault(); findPeople(); });
@@ -174,6 +218,7 @@ function renderHome(initial) {
   if (state.resp) { renderResults(state.resp, true); }
   else if (store.get('knot.searched', false) && state.goal.trim() && state.me) findPeople();
   if (initial || !state.resp) goal.focus({ preventScroll: true }); else $('#h1').focus({ preventScroll: true });
+  queueNext();
 }
 
 function showErr(sel, text) { const e = $(sel); if (!e) return; e.innerHTML = icon.alert + `<span>${esc(text)}</span>`; e.hidden = false; }
@@ -240,6 +285,7 @@ function renderResults(resp, restoring) {
   [...state.selected].forEach(id => { if (!ids.has(id)) state.selected.delete(id); });
   reconcile(resp.results, restoring);
 
+  const ph = $('#pickHint'); if (ph) ph.hidden = !resp.results.length;
   const empty = $('#empty');
   if (resp.empty) {
     empty.hidden = false;
@@ -248,6 +294,7 @@ function renderResults(resp, restoring) {
       ${resp.empty.options.length ? `<div class="relax-row">${resp.empty.options.map(o => `<button type="button" class="chip" data-relax="${o.key}">${esc(o.text)} <span class="chip-note">${o.count} ${o.count === 1 ? 'person' : 'people'}</span></button>`).join('')}</div>` : ''}
       <p class="small">Your goal stays exactly as you typed it. Edit it above or relax a requirement.</p></div>`;
   } else { empty.hidden = true; empty.innerHTML = ''; }
+  queueNext();
 
   updateCreateBar();
   if (!restoring) {
@@ -327,6 +374,7 @@ function updateCreateBar() {
     $('#createText').textContent = `${sel.map(s => s.name.split(' ')[0]).join(', ')} selected. Ready to start a group?`;
     $('#createBtn').textContent = sel.length > 1 ? `Create group (${sel.length})` : 'Create group';
   }
+  queueNext();
 }
 
 
@@ -469,7 +517,7 @@ function paintFinder() {
   log.innerHTML = `<div class="bubble bot">${esc(FINDER_HELLO)}</div>` + state.finder.items.map(finderBubble).join('') +
     (state.finder.busy ? '<div class="bubble bot typing" aria-label="KNOT is thinking"><i></i><i></i><i></i></div>' : '') +
     (state.finder.error ? `<p class="msg err" role="alert">${icon.alert}<span>${esc(state.finder.error)} </span>${state.finder.items.length && state.finder.items[state.finder.items.length - 1].role === 'user' ? '<button type="button" class="link-btn" id="fRetry">Try again</button>' : ''}</p>` : '');
-  log.scrollTop = log.scrollHeight;
+  log.scrollTop = log.scrollHeight; queueNext();
   const send = $('#fSend'); if (send) { send.disabled = state.finder.busy; send.setAttribute('aria-busy', state.finder.busy); }
 }
 async function finderAsk() {
@@ -532,7 +580,7 @@ async function renderGroups() {
   const list = $('#groupList'); if (!list) return;
   if (!rooms.length) {
     list.innerHTML = `<div class="empty center"><img src="assets/art/puzzle_piece.png" width="150" height="152" alt="" class="empty-art"><div><h2>No groups yet</h2><p>Describe what you want to do, pick the people who fit, and your first group will show up here.</p><a class="btn primary" href="#/">Find my people</a></div></div>`;
-    return;
+    queueNext(); return;
   }
   list.innerHTML = `<ul class="group-list">${rooms.map(r => `<li><a class="group-row" href="#/room/${r.id}">${markImg(52)}<span class="g-main"><strong>${esc(r.title)}</strong><span class="g-goal">“${esc(r.goal)}”</span><span class="meta">${r.members.length} ${r.members.length === 1 ? 'person' : 'people'} · ${r.messageCount} ${r.messageCount === 1 ? 'message' : 'messages'}</span></span>${icon.arrow}</a></li>`).join('')}</ul>`;
 }
@@ -545,7 +593,7 @@ async function renderRoom(id) {
   const main = $('#main');
   main.innerHTML = '<section class="page"><p class="hint">Opening group…</p></section>';
   let room;
-  try { room = (await api('/api/rooms/' + encodeURIComponent(id))).room; }
+  try { const d = await api('/api/rooms/' + encodeURIComponent(id)); room = d.room; state.roomNext = d.next; }
   catch (e) {
     main.innerHTML = `<section class="page"><div class="empty center"><img src="assets/art/puzzle_piece.png" width="150" height="152" alt="" class="empty-art"><div><h1 id="h1" tabindex="-1">We couldn’t open that group</h1><p>${esc(e.message)}</p><a class="btn primary" href="#/groups">Back to My groups</a></div></div></section>`;
     $('#h1').focus(); return;
@@ -580,12 +628,12 @@ async function renderRoom(id) {
   const paint = (r, force) => {
     if (!force && r.messages.length === lastCount) return;
     const box = $('#msgs'); const near = box.scrollHeight - box.scrollTop - box.clientHeight < 80 || lastCount < 0;
-    lastCount = r.messages.length;
+    lastCount = r.messages.length; if (lastCount) state.roomNext = null; queueNext();
     box.innerHTML = r.messages.length ? r.messages.map(m => `<li class="msg-item ${m.authorId === state.clientId ? 'mine' : ''}"><div class="bubble"><div class="m-head"><strong>${esc(m.authorName)}</strong>${m.kind === 'assistant' ? '<span class="badge assistant">Assistant draft</span>' : ''}<time datetime="${esc(m.ts)}">${esc(timeFmt(m.ts))}</time></div><p>${esc(m.text)}</p></div></li>`).join('')
       : `<li class="msg-empty"><img src="assets/art/heart_chat.png" width="120" height="104" alt="" loading="lazy"><p><strong>Say hello.</strong> Start the conversation, or ask for a first step.</p></li>`;
     if (near) box.scrollTop = box.scrollHeight;
   };
-  paint(room, true);
+  paint(room, true); queueNext();
   state.pollTimer = setInterval(async () => { try { const r = (await api('/api/rooms/' + id)).room; paint(r); } catch { /* offline: keep showing */ } }, 4000);
 
   const post = async (text, kind) => {
