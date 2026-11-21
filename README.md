@@ -9,7 +9,9 @@ Built for the ITKAN AI Hackathon (Plano, TX).
 node server.js
 ```
 
-Then open http://localhost:3000. Needs Node 18+ (tested on Node 24). No `npm install`, no dependencies, no API key.
+Then open http://localhost:3000. Needs Node 18+ (tested on Node 24). No `npm install`, no dependencies.
+
+**Optional AI (Groq):** copy `.env.example` to `.env` and set `GROQ_API_KEY`. The key is read by the server only, never sent to the browser, and `.env` is git-ignored. Without a key the site still works: the AI Finder tab is disabled and the help bot falls back to basic local rules.
 Use `PORT=4000 node server.js` for another port. To reset the demo (delete all groups and messages), stop the server and delete `data/db.json`.
 
 ## What is real and what is simulated
@@ -17,6 +19,7 @@ Use `PORT=4000 node server.js` for another port. To reset the demo (delete all g
 | Area | Actual mode |
 |---|---|
 | **Matching** | **Local rules, no AI model at runtime.** A deterministic matcher in `lib/match.js` reads skills, a city, in-person vs. online and a day from the goal text with keyword rules, applies explicit requirements first, then ranks by skill and topic overlap. Every sentence shown comes from a stored profile field. The UI labels this "Local matcher". |
+| **AI Finder tab + Help bot** | Groq models (`openai/gpt-oss-120b` for the Finder, `openai/gpt-oss-20b` for the help bot), called server-side. The Finder only turns a short chat into a goal; **the people shown still come from the local matcher and profile data**. The help bot returns an allow-listed page to open; the "how to get there / get back" text is fixed, not model-written. If the AI call fails, the UI says so. |
 | **Assistant ("Help us get started")** | A **template**, not an AI. It fills in the goal, members' stated skills and shared free days. It is labeled as a draft, can be edited, posted or discarded. |
 | **Storage** | `data/db.json` on the machine running the server. Rooms and messages survive refresh and restart. Anyone opening the same server URL sees the same rooms. Your profile, goal and a client id live in the browser's `localStorage`. |
 | **Members** | The 16 profiles in `data/profiles.json` are fictional. They never reply. Nothing pretends they are online. |
@@ -25,7 +28,8 @@ Use `PORT=4000 node server.js` for another port. To reset the demo (delete all g
 
 ## Files
 
-- `server.js` : static server + JSON API (`/api/match`, `/api/rooms`, `/api/rooms/:id/messages`, `/api/rooms/:id/assist`)
+- `server.js` : static server + JSON API (`/api/match`, `/api/rooms`, `/api/rooms/:id/messages`, `/api/rooms/:id/assist`, `/api/ai/finder`, `/api/ai/help`); AI calls are rate-limited (30/min per address)
+- `lib/env.js`, `lib/groq.js`, `lib/ai.js`, `lib/store.js` : .env loader, Groq client, AI features, JSON-file storage
 - `lib/match.js` : the matcher and the assistant template
 - `data/profiles.json` : fictional profiles (structured facts the matcher uses)
 - `public/` : `index.html`, `app.js`, `styles.css`, `assets/art` (chrome art), `assets/fonts`

@@ -4,24 +4,26 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+require('./lib/env');
+const { db, save } = require('./lib/store');
+const groq = require('./lib/groq');
+const { finderTurn, helpTurn } = require('./lib/ai');
 const { profiles, SKILLS, SKILL_BY_ID, matchGoal, buildAssist, cap } = require('./lib/match');
 
 const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC = path.join(__dirname, 'public');
-const DB_FILE = path.join(__dirname, 'data', 'db.json');
-
-let db = { rooms: [] };
-try { db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); if (!Array.isArray(db.rooms)) db.rooms = []; } catch { /* fresh db */ }
-function save() {
-  fs.writeFileSync(DB_FILE + '.tmp', JSON.stringify(db, null, 2));
-  fs.renameSync(DB_FILE + '.tmp', DB_FILE);
-}
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8', '.ico': 'image/x-icon' };
 
+const hits = new Map();
+function limited(req) { // 30 AI calls per minute per address
+  const k = req.socket.remoteAddress || 'x', now = Date.now(), arr = (hits.get(k) || []).filter(x => now - x < 60000);
+  if (arr.length >= 30) { hits.set(k, arr); return false; }
+  arr.push(now); hits.set(k, arr); return true;
+}
 function send(res, code, body) {
   const data = JSON.stringify(body);
-  res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
   res.end(data);
 }
 function readBody(req) {
@@ -51,7 +53,21 @@ async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // after "api"
   const m = req.method;
 
-  if (m === 'GET' && parts[0] === 'status') return send(res, 200, { matcher: 'local-rules', ai: false, storage: 'data/db.json', profiles: profiles.length });
+  if (m === 'GET' && parts[0] === 'status') return send(res, 200, { matcher: 'local-rules', ai: groq.enabled(), aiModels: groq.enabled() ? groq.MODELS : null, storage: 'data/db.json', profiles: profiles.length });
+
+  if (m === 'POST' && parts[0] === 'ai') {
+    if (!limited(req)) return send(res, 429, { error: 'Slow down a little and try again in a minute.' });
+    const b = await readBody(req);
+    if (parts[1] === 'help') return send(res, 200, await helpTurn({ history: b.history }));
+    if (parts[1] === 'finder') {
+      if (!groq.enabled()) return send(res, 503, { error: 'The AI Finder is not configured on this server. Use the Home page to describe your goal instead.' });
+      const me = b.me || {};
+      const clean = { skills: (Array.isArray(me.skills) ? me.skills : []).filter(id => SKILL_IDS.has(id)), availability: [] };
+      try { return send(res, 200, await finderTurn({ history: b.history, me: clean })); }
+      catch (e) { return send(res, e.status || 502, { error: e.status ? e.message : `The AI Finder is unavailable (${e.message}). Your messages are still here; try again, or use the Home page.` }); }
+    }
+    return send(res, 404, { error: 'Not found' });
+  }
   if (m === 'GET' && parts[0] === 'skills') return send(res, 200, { skills: SKILLS.map(s => ({ id: s.id, label: s.label })) });
 
   if (m === 'POST' && parts[0] === 'match') {
@@ -109,7 +125,7 @@ function serveStatic(req, res, url) {
   if (!file.startsWith(PUBLIC + path.sep)) { res.writeHead(403); return res.end('Forbidden'); }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('Not found'); }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin' });
     res.end(data);
   });
 }
@@ -131,5 +147,5 @@ server.on('error', e => {
 });
 server.listen(PORT, () => {
   console.log(`KNOT is running at http://localhost:${PORT}`);
-  console.log('Matching: local rules (no AI model). Storage: data/db.json');
+  console.log(`Matching: local rules. AI chat + help: ${groq.enabled() ? 'on (Groq, key read from .env, server-side only)' : 'off (no GROQ_API_KEY; help bot uses basic local rules)'}. Storage: data/db.json`);
 });

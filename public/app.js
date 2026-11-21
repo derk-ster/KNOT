@@ -24,6 +24,7 @@ const icon = {
   x: '<svg class="ic" viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg>',
   chev: '<svg class="ic chev" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l5 5 5-5"/></svg>',
   send: '<svg class="ic" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l14-6-5 13-2-5-7-2z"/></svg>',
+  pencil: '<svg class="ic" viewBox="0 0 20 20" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l1-4L14 3l3 3L7 16l-4 1zM12 5l3 3"/></svg>',
   arrow: '<svg class="ic" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h12M11 5l5 5-5 5"/></svg>'
 };
 const markImg = (w = 42) => `<img src="assets/art/knot-mark.svg" width="${w}" height="${Math.round(w * 0.75)}" alt="" class="mark">`;
@@ -59,6 +60,7 @@ function paintHeader() {
   $('#profileLabel').textContent = state.me ? state.me.name.split(' ')[0] : 'Profile';
   const h = location.hash || '#/';
   $('#navHome').setAttribute('aria-current', h === '#/' || h === '' ? 'page' : 'false');
+  $('#navFinder').setAttribute('aria-current', h.startsWith('#/finder') ? 'page' : 'false');
   $('#navGroups').setAttribute('aria-current', h.startsWith('#/groups') || h.startsWith('#/room') ? 'page' : 'false');
 }
 async function refreshGroupCount() {
@@ -77,6 +79,7 @@ function route(initial) {
   $('#createDialog').open && $('#createDialog').close();
   if (h.startsWith('#/room/')) renderRoom(h.slice(7));
   else if (h === '#/groups') renderGroups();
+  else if (h === '#/finder') renderFinder();
   else renderHome(initial);
   refreshGroupCount();
 }
@@ -115,6 +118,7 @@ function renderHome(initial) {
         <span class="badge neutral" title="No AI model is connected. Matches come from KNOT's local rules.">Local matcher</span>
       </div>
       <div id="interp" class="interp" aria-label="What KNOT understood"></div>
+      <p id="pickHint" class="pick-hint">Next step: press <strong>Add to group</strong> on the people you want, then <strong>Create group</strong>.</p>
       <p id="matchErr" class="msg err" role="alert" hidden></p>
       <ul id="results" class="results"></ul>
       <div id="empty" class="empty" hidden></div>
@@ -183,6 +187,12 @@ async function findPeople(force) {
 }
 
 function onRelaxClick(e) {
+  const ed = e.target.closest('[data-edit]');
+  if (ed) {
+    if (ed.dataset.edit === 'offer') openProfile({ rerun: true, focusSkills: true });
+    else { const g = $('#goal'); g.scrollIntoView({ behavior: 'smooth', block: 'center' }); g.focus({ preventScroll: true }); g.setSelectionRange(g.value.length, g.value.length); }
+    return;
+  }
   const b = e.target.closest('[data-relax]'); if (!b) return;
   const k = b.dataset.relax;
   if (!state.relaxed.includes(k)) state.relaxed.push(k);
@@ -196,8 +206,8 @@ function renderResults(resp, restoring) {
   hideErr('#matchErr');
   const it = resp.interpreted;
   const chips = [];
-  if (it.offers.length) chips.push(`<span class="tag">You offer: ${esc(it.offers.map(o => o.label).join(', '))}</span>`);
-  chips.push(it.needs.length ? `<span class="tag strong">Looking for: ${esc(it.needs.map(o => o.label).join(', '))}</span>` : '<span class="tag">No specific skill found</span>');
+  chips.push(`<button type="button" class="tag editable" data-edit="offer" aria-label="You offer: ${esc(it.offers.map(o => o.label).join(', ') || 'nothing yet')}. Change what you offer">You offer: ${esc(it.offers.map(o => o.label).join(', ') || 'nothing yet')}${icon.pencil}<span class="tag-hint">Change</span></button>`);
+  chips.push(it.needs.length ? `<button type="button" class="tag strong editable" data-edit="need" aria-label="Looking for: ${esc(it.needs.map(o => o.label).join(', '))}. Edit your goal">Looking for: ${esc(it.needs.map(o => o.label).join(', '))}${icon.pencil}<span class="tag-hint">Edit goal</span></button>` : '<button type="button" class="tag editable" data-edit="need">No specific skill found. Edit your goal' + icon.pencil + '</button>');
   it.constraints.forEach(c => chips.push(c.relaxed
     ? `<span class="tag relaxed">${esc(c.label)} <span class="tag-note">(relaxed)</span></span>`
     : `<span class="tag req">${esc(c.label)}<button type="button" class="tag-x" data-relax="${c.key}" aria-label="Relax requirement: ${esc(c.label)}">${icon.x}</button></span>`));
@@ -227,7 +237,7 @@ function renderResults(resp, restoring) {
 function cardInner(r, open) {
   const sel = state.selected.has(r.id);
   return `<div class="card-grid">
-    <label class="pick"><input type="checkbox" ${sel ? 'checked' : ''} aria-label="Add ${esc(r.name)} to a group"><span class="box">${icon.check}</span></label>
+    <label class="pick"><input type="checkbox" ${sel ? 'checked' : ''} aria-label="Add ${esc(r.name)} to a group"><span class="box">${icon.check}</span><span class="pick-text"><span class="when-off">Add to group</span><span class="when-on">Added</span></span></label>
     <div class="avatar" style="--hue:${hueOf(r.name)}" aria-hidden="true">${esc(initials(r.name))}</div>
     <div class="card-body">
       <div class="card-top"><h3>${esc(r.name)}</h3><span class="meta">${esc(r.city)} · ${esc(r.modeText)}</span></div>
@@ -310,7 +320,7 @@ function drawStrands() {
   const want = new Set();
   $$('#results li.selected').forEach(li => {
     const box = $('.box', li).getBoundingClientRect(); const id = li.dataset.id; want.add(id);
-    const tx = box.left - hr.left + 2, ty = box.top - hr.top + box.height / 2;
+    const tx = li.getBoundingClientRect().left - hr.left + 2, ty = box.top - hr.top + box.height / 2;
     const d = `M${sx} ${ay} C${ax} ${ay + 30}, ${ax} ${ty - 120}, ${tx - 12} ${ty - 6} S${tx - 6} ${ty}, ${tx} ${ty}`;
     let p = strandPaths.get(id);
     if (!p) {
@@ -349,7 +359,7 @@ function openProfile(opts = {}) {
       <button type="submit" class="btn primary">${opts.thenSearch ? 'Save and find my people' : 'Save profile'}</button>
     </div></form>`;
   d.showModal();
-  $('#pName').focus();
+  (opts.focusSkills ? $('#pSkills input') : $('#pName')).focus();
   $('#pCancel').addEventListener('click', () => d.close());
   $('#profileForm').addEventListener('submit', e => {
     e.preventDefault();
@@ -364,7 +374,7 @@ function openProfile(opts = {}) {
     state.me = { name, skills, interests: $('#pInterests').value.trim(), city: $('#pCity').value, availability: $$('#pDays input:checked').map(i => i.value), mode: ($('input[name=pMode]:checked') || { value: 'both' }).value };
     store.set('knot.me', state.me); state.respKey = null;
     d.close(); paintHeader();
-    if (opts.thenSearch) findPeople(true); else say('Profile saved.');
+    if (opts.thenSearch || (opts.rerun && state.goal.trim())) findPeople(true); else say('Profile saved.');
   });
 }
 
@@ -434,6 +444,84 @@ function playKnot(room) {
 }
 
 // ---------- GROUPS ----------
+
+// ---------- AI FINDER ----------
+state.finder = { items: [], busy: false };
+const FINDER_HELLO = 'Hi! Tell me what you want to do and who you need. I’ll find people from KNOT’s community.';
+const FINDER_IDEAS = ['I need someone to edit my short film', 'I want a study partner for coding, online', 'Looking for a basketball group in Frisco'];
+
+function finderCard(r) {
+  const flag = r.flags && r.flags[0];
+  return `<li class="fcard"><div class="avatar sm" style="--hue:${hueOf(r.name)}" aria-hidden="true">${esc(initials(r.name))}</div>
+    <div><strong>${esc(r.name)}</strong> <span class="meta">${esc(r.city)} · ${esc(r.modeText)}</span>
+    <p>${esc(r.reason)}</p>${flag ? `<p class="fflag">${icon.alert}<span>${esc(flag.text)}</span></p>` : ''}</div></li>`;
+}
+function finderBubble(m, i) {
+  if (m.role === 'user') return `<div class="bubble me">${esc(m.content)}</div>`;
+  let extra = '';
+  if (m.result) {
+    const res = m.result.results || [];
+    extra = res.length
+      ? `<ul class="fcards">${res.map(finderCard).join('')}</ul><button type="button" class="btn primary sm" data-open="${i}">Open full matches ${icon.arrow}</button>`
+      : `<p class="fnone">${esc((m.result.empty && m.result.empty.message) || 'No one fits that yet.')}</p><button type="button" class="btn ghost sm" data-open="${i}">Adjust on Home ${icon.arrow}</button>`;
+  }
+  return `<div class="bubble bot">${esc(m.content)}${extra}</div>`;
+}
+function paintFinder() {
+  const log = $('#fLog'); if (!log) return;
+  log.innerHTML = `<div class="bubble bot">${esc(FINDER_HELLO)}</div>` + state.finder.items.map(finderBubble).join('') +
+    (state.finder.busy ? '<div class="bubble bot typing" aria-label="KNOT is thinking"><i></i><i></i><i></i></div>' : '') +
+    (state.finder.error ? `<p class="msg err" role="alert">${icon.alert}<span>${esc(state.finder.error)} </span><button type="button" class="link-btn" id="fRetry">Try again</button></p>` : '');
+  log.scrollTop = log.scrollHeight;
+  const send = $('#fSend'); if (send) { send.disabled = state.finder.busy; send.setAttribute('aria-busy', state.finder.busy); }
+}
+async function finderAsk() {
+  const f = state.finder; f.busy = true; f.error = null; paintFinder();
+  try {
+    const history = f.items.map(m => ({ role: m.role, content: m.content }));
+    const out = await api('/api/ai/finder', { method: 'POST', body: JSON.stringify({ history, me: { skills: state.me ? state.me.skills : [] } }) });
+    f.items.push({ role: 'assistant', content: out.reply, goal: out.goal, result: out.result });
+  } catch (e) { f.error = e.message; }
+  f.busy = false; paintFinder();
+  const i = $('#fInput'); if (i) i.focus({ preventScroll: true });
+}
+function finderOpen(i) {
+  const m = state.finder.items[i]; if (!m || !m.goal) return;
+  state.goal = m.goal; store.set('knot.goal', m.goal); store.set('knot.searched', true);
+  state.relaxed = []; state.resp = null; state.respKey = null; state.selected.clear();
+  location.hash = '#/';
+  setTimeout(() => findPeople(true), 80);
+}
+async function renderFinder() {
+  $('#main').innerHTML = `<section class="finder" aria-labelledby="fh">
+    <h1 id="fh" tabindex="-1">AI Finder</h1>
+    <p class="lead">A quick chat to work out who you need. Matches come from KNOT’s people and rules, never from the AI’s imagination.</p>
+    <div id="fOff" class="msg warn" hidden></div>
+    <div class="chat" id="fLog" role="log" aria-live="polite" aria-label="Conversation"></div>
+    <div class="ideas" id="fIdeas">${FINDER_IDEAS.map(x => `<button type="button" class="chip example" data-idea="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+    <form id="fForm" class="chat-form" novalidate>
+      <label class="sr" for="fInput">Message to the AI Finder</label>
+      <input id="fInput" type="text" maxlength="300" autocomplete="off" placeholder="What do you want to do?">
+      <button class="btn primary" id="fSend" type="submit">Send ${icon.send}</button>
+    </form></section>`;
+  paintFinder();
+  const send = txt => {
+    txt = txt.trim(); if (!txt || state.finder.busy) return;
+    state.finder.items.push({ role: 'user', content: txt }); $('#fInput').value = ''; finderAsk();
+  };
+  $('#fForm').addEventListener('submit', e => { e.preventDefault(); send($('#fInput').value); });
+  $('#fIdeas').addEventListener('click', e => { const b = e.target.closest('[data-idea]'); if (b) send(b.dataset.idea); });
+  $('#fLog').addEventListener('click', e => {
+    const o = e.target.closest('[data-open]'); if (o) finderOpen(Number(o.dataset.open));
+    if (e.target.closest('#fRetry')) finderAsk();
+  });
+  $('#fInput').focus({ preventScroll: true });
+  try {
+    const s = await api('/api/status');
+    if (!s.ai) { const o = $('#fOff'); if (!o) return; o.hidden = false; o.innerHTML = icon.alert + '<span>The AI Finder isn’t switched on for this server, so chatting is disabled. Use <a href="#/">Home</a> to describe your goal.</span>'; $('#fInput').disabled = true; $('#fSend').disabled = true; }
+  } catch { /* status is optional */ }
+}
+
 async function renderGroups() {
   const main = $('#main');
   main.innerHTML = `<section class="page"><h1 id="h1" tabindex="-1" class="page-title">My groups</h1><div id="groupList" aria-live="polite"><p class="hint">Loading…</p></div></section>`;
