@@ -161,7 +161,7 @@ function renderHome() {
       <div class="hero-copy">
         <div class="hero-headline">
           <img class="hero-knot" src="assets/art/hero-knot.png" width="1200" height="311" alt="" aria-hidden="true">
-          <h1 id="h1">Find your <span class="hero-people">people<svg class="hero-underline" viewBox="0 0 200 12" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M2 9C50 3 150 3 198 8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg></span>.<br>Make it <span class="hero-strong">happen</span>.</h1>
+          <h1 id="h1">Find your <span class="hero-people">people<svg class="hero-underline" viewBox="0 0 200 12" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M2 9C50 3 150 3 198 8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg></span>.<br>Make it <span class="hero-strong">happen.</span></h1>
         </div>
         <p class="hero-sub">Discover people who share your interests, build groups, and turn ideas into something real.</p>
         <div class="hero-actions">
