@@ -208,13 +208,16 @@ main#main { min-height: 60vh; }
 /* ---------- signed-in home ---------- */
 /* The working home. The colour is a wash behind the headline and a handful of small metallic
    objects drifting at the edges; the goal box stays the plainest thing on the page. */
-.mhero { position: relative; overflow: clip; padding: clamp(32px, 6vw, 72px) 0 clamp(20px, 4vw, 40px); text-align: center; }
+.mhero { position: relative; padding: clamp(32px, 6vw, 72px) 0 clamp(20px, 4vw, 40px); text-align: center; }
+/* The wash runs the full width of the window, whatever that is, so it reads as light in the room
+   rather than a coloured strip in the middle. Sized in px so it keeps its shape on wide screens. */
 .mhero::before {
-  content: ''; position: absolute; inset: -30% -10% auto; height: 120%; pointer-events: none;
+  content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%); pointer-events: none;
   background:
-    radial-gradient(ellipse 42% 46% at 22% 34%, rgba(238, 233, 250, .95), transparent 70%),
-    radial-gradient(ellipse 40% 44% at 78% 26%, rgba(229, 243, 238, .9), transparent 70%),
-    radial-gradient(ellipse 50% 40% at 50% 8%, rgba(255, 241, 204, .5), transparent 72%);
+    radial-gradient(560px 380px at 32% 34%, rgba(238, 233, 250, .95), transparent 70%),
+    radial-gradient(540px 360px at 68% 26%, rgba(229, 243, 238, .9), transparent 70%),
+    radial-gradient(700px 320px at 50% 2%, rgba(255, 241, 204, .45), transparent 72%),
+    linear-gradient(180deg, rgba(248, 246, 241, .92), rgba(255, 255, 255, 0) 88%);
 }
 .mhero-copy { position: relative; z-index: 2; max-width: 820px; margin: 0 auto; padding-inline: var(--gutter); }
 .mhero h1 { font-size: clamp(2.3rem, 7vw, 4.4rem); font-weight: 800; letter-spacing: -.04em; line-height: .99; }
@@ -224,7 +227,9 @@ main#main { min-height: 60vh; }
 }
 .mhero-sub { color: var(--muted); font-size: clamp(1rem, 2.2vw, 1.18rem); max-width: 46ch; margin: 14px auto 0; line-height: 1.5; }
 .mhero .goal-wrap { margin-top: clamp(20px, 3.5vw, 32px); text-align: left; }
-.mhero-floats { position: absolute; inset: 0; pointer-events: none; }
+/* The objects sit against the window edges, so they follow the screen width instead of the
+   text column: wider window, wider spread. */
+.mhero-floats { position: absolute; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%); pointer-events: none; }
 .fl {
   position: absolute; width: clamp(44px, 6vw, 74px); height: auto; opacity: .55;
   filter: drop-shadow(0 8px 16px rgba(33, 30, 40, .14));
@@ -238,9 +243,9 @@ main#main { min-height: 60vh; }
 .fl-6 { right: 3%; top: 72%; width: clamp(32px, 4.2vw, 50px); animation-delay: -9s; }
 @keyframes drift { 50% { transform: translateY(-14px) rotate(4deg); } }
 @media (prefers-reduced-motion: reduce) { .fl { animation: none; } }
-/* The floats live in the side bands beside the copy. Below ~1180px there is no band left,
+/* The floats live in the side margins beside the copy. Below ~1050px there is no margin left,
    so drop them rather than let them sit under the headline. */
-@media (max-width: 1179px) { .mhero-floats { display: none; } }
+@media (max-width: 1049px) { .mhero-floats { display: none; } }
 .mhero #matchResults:not(:empty), .mhero #homeResults:not(:empty) { text-align: left; margin-top: 24px; }
 
 /* what you bring / what you need */
@@ -385,6 +390,7 @@ body.booted .reveal { animation: reveal-in 420ms var(--ease) forwards; }
 .notice { margin: 0 0 16px; padding: 10px 14px; border-radius: 14px; background: var(--mint); color: var(--teal); font-weight: 500; font-size: .95rem; }
 /* add-to-group pill */
 .pick { position: absolute; top: 14px; right: 14px; display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px 6px 8px; min-height: 42px; border-radius: 999px; border: 2px solid var(--violet); background: #fff; color: var(--violet); font-weight: 700; font-size: .9rem; cursor: pointer; transition: background var(--t-fast), color var(--t-fast); }
+.pick-text { white-space: nowrap; }
 .pick input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .pick .box { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--violet); display: grid; place-items: center; color: transparent; }
 .pick input:checked + .box { background: #fff; color: var(--violet); border-color: #fff; }
@@ -392,8 +398,13 @@ body.booted .reveal { animation: reveal-in 420ms var(--ease) forwards; }
 .pick-text .when-on, .pick input:checked ~ .pick-text .when-off { display: none; }
 .pick input:checked ~ .pick-text .when-on { display: inline; }
 .pick:has(input:checked) { background: var(--violet); color: #fff; }
-.card-top { padding-right: 140px; }
-@media (max-width: 560px) { .card-top { padding-right: 0; padding-top: 48px; } .pick { top: 12px; right: 12px; } }
+.card-top { padding-right: 168px; }
+/* Once the card is narrow the pill has no room beside the name, so it becomes the first row of
+   the card instead of an overlay that crowds the heading. */
+@media (max-width: 760px) {
+  .card-top { padding-right: 0; }
+  .pick { position: static; width: fit-content; margin-bottom: 8px; }
+}
 /* create bar */
 .create-bar { position: fixed; left: 0; right: 0; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 8; margin: 0 auto; width: min(720px, calc(100% - 2 * var(--gutter))); display: flex; align-items: center; gap: 14px; background: var(--white); border: 1.5px solid var(--violet); border-radius: var(--r-lg); padding: 10px 12px 10px 18px; box-shadow: var(--shadow-2); animation: cardIn var(--t-mid) var(--ease) both; }
 .create-bar p { flex: 1; font-weight: 500; line-height: 1.35; }
@@ -449,11 +460,31 @@ body.booted .reveal { animation: reveal-in 420ms var(--ease) forwards; }
 dialog { border: 0; border-radius: var(--r-lg); padding: 0; background: var(--white); color: var(--ink); width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); box-shadow: var(--shadow-2); }
 dialog::backdrop { background: rgba(33, 30, 40, .45); }
 dialog[open] { animation: cardIn var(--t-mid) var(--ease) both; }
-.dlg { padding: 26px; display: grid; gap: 16px; overflow-y: auto; max-height: inherit; }
+.dlg { --dlg-pad: 26px; padding: var(--dlg-pad); display: grid; gap: 16px; overflow-y: auto; max-height: inherit; }
 .dlg-head { display: flex; gap: 14px; align-items: center; }
 .dlg-head h2 { font-size: 1.5rem; font-weight: 800; letter-spacing: -.02em; }
+/* Sign-up and sign-in open on the same colour as the home page, with a couple of the metallic
+   objects drifting in the top corner. */
+.dlg-banner {
+  position: relative; margin: calc(-1 * var(--dlg-pad)) calc(-1 * var(--dlg-pad)) 0;
+  padding: var(--dlg-pad) var(--dlg-pad) calc(var(--dlg-pad) - 6px);
+  border-radius: var(--r-lg) var(--r-lg) 0 0; overflow: clip;
+  background:
+    radial-gradient(420px 200px at 16% 6%, rgba(238, 233, 250, .95), transparent 72%),
+    radial-gradient(380px 190px at 84% 0%, rgba(229, 243, 238, .9), transparent 72%),
+    linear-gradient(180deg, #FAF8F3, rgba(255, 255, 255, 0));
+}
+.dlg-banner .dlg-head { position: relative; z-index: 1; padding-right: 88px; }
+@media (max-width: 520px) { .dlg-banner .dlg-head { padding-right: 46px; } }
+.dlg-floats { position: absolute; inset: 0; pointer-events: none; }
+.dlg-floats img { position: absolute; width: 40px; opacity: .5; filter: drop-shadow(0 6px 12px rgba(33, 30, 40, .14)); animation: drift 11s var(--ease) infinite; }
+.dlg-floats img:nth-child(1) { right: 16px; top: 8px; }
+.dlg-floats img:nth-child(2) { right: 62px; bottom: 4px; width: 32px; animation-delay: -3.5s; }
+.dlg-floats img:nth-child(3) { right: 14px; bottom: 14px; width: 24px; opacity: .38; animation-delay: -7s; }
+@media (max-width: 520px) { .dlg-floats img:nth-child(2), .dlg-floats img:nth-child(3) { display: none; } }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; position: sticky; bottom: 0; background: var(--white); padding-top: 8px; }
 .dlg-actions.spread { justify-content: space-between; }
+.dlg-end { display: flex; gap: 10px; flex-wrap: wrap; margin-left: auto; }
 .field { display: grid; gap: 6px; border: 0; padding: 0; margin: 0; min-width: 0; }
 .field label, .field legend { font-weight: 600; font-size: .95rem; padding: 0; }
 .field input[type=text], .field input[type=email], .field input[type=password], .field input[type=number], .field select { min-height: 48px; border: 1.5px solid var(--line); background: var(--white); border-radius: 12px; padding: 0 14px; width: 100%; }
@@ -502,7 +533,7 @@ dialog[open] { animation: cardIn var(--t-mid) var(--ease) both; }
   .brand { font-size: 1.25rem; }
   .hero-actions .btn { width: 100%; }
   .card { padding: 16px; }
-  .dlg { padding: 18px; }
+  .dlg { --dlg-pad: 18px; }
   .why dl div { grid-template-columns: 1fr; gap: 0; }
   .empty { flex-direction: column; align-items: flex-start; gap: 14px; }
   .empty-art { width: 84px; }

@@ -113,7 +113,8 @@ function paintHeader() {
   const av = $('#profileAvatar');
   av.innerHTML = p.avatar ? `<img src="${esc(p.avatar)}" alt="">` : (p.name ? esc(initials(p.name)) : '?');
   $('#profileLabel').textContent = p.name ? p.name.split(' ')[0] : 'Profile';
-  const ab = $('#authBtn'); if (ab) ab.textContent = state.acct ? 'Sign out' : 'Sign in';
+  // Signing out lives in the profile dialog: the header keeps one clear action, which is signing in.
+  const ab = $('#authBtn'); if (ab) { ab.textContent = 'Sign in'; ab.hidden = !!state.acct; }
   const h = location.hash || '#/';
   $('#navHome').setAttribute('aria-current', h === '#/' || h === '' ? 'page' : 'false');
   $('#navDiscover').setAttribute('aria-current', h.startsWith('#/discover') ? 'page' : 'false');
@@ -229,7 +230,7 @@ function renderMemberHome() {
         ${floats.map((n, i) => `<img class="fl fl-${i + 1}" src="assets/art/float/${n}.png" alt="" loading="lazy" decoding="async">`).join('')}
       </div>
       <div class="mhero-copy">
-        <h1 id="h1" tabindex="-1">What do you <span class="mhero-hl">want</span><br>to do?</h1>
+        <h1 id="h1" tabindex="-1">What do <span class="mhero-hl">you</span> want<br>to do?</h1>
         <p class="mhero-sub">Say it in your own words. KNOT finds the people who fit and tells you why.</p>
         <div class="goal-wrap">
           <form id="goalForm" class="goal-form" novalidate>
@@ -676,8 +677,15 @@ function openAuth(mode = 'in') {
   const d = $('#authDialog');
   const isUp = mode === 'up';
   d.innerHTML = `<form method="dialog" id="authForm" novalidate class="dlg">
-    <div class="dlg-head">${markImg(48)}<div><h2 id="authTitle">${isUp ? 'Create your account' : 'Welcome back'}</h2>
+    <div class="dlg-banner">
+      <div class="dlg-floats" aria-hidden="true">
+        <img src="assets/art/float/heart.png" alt="" loading="lazy" decoding="async">
+        <img src="assets/art/float/paper_plane.png" alt="" loading="lazy" decoding="async">
+        <img src="assets/art/float/sparkle.png" alt="" loading="lazy" decoding="async">
+      </div>
+      <div class="dlg-head">${markImg(48)}<div><h2 id="authTitle">${isUp ? 'Create your account' : 'Welcome back'}</h2>
       <p class="hint">${isUp ? 'Email, password, a name, and you are in. About a minute.' : 'Sign in to reach your groups on this device.'}</p></div></div>
+    </div>
     ${isUp ? `
     <div class="field"><label for="aEmail">Email</label><input id="aEmail" type="email" maxlength="120" autocomplete="email" required></div>
     <div class="field"><label for="aPass">Password</label><input id="aPass" type="password" maxlength="200" autocomplete="new-password" aria-describedby="aPassHint"><p class="hint" id="aPassHint">At least 8 characters, with letters and numbers.</p></div>
@@ -817,13 +825,23 @@ function openProfile(opts = {}) {
       <button type="button" class="btn ghost sm" id="pDelete">Delete my account</button>
     </details>` : ''}
     <p class="msg err" id="pErr" role="alert" hidden></p>
-    <div class="dlg-actions">
-      <button type="button" class="btn ghost" id="pCancel">Cancel</button>
-      <button type="submit" class="btn primary">${opts.thenSearch ? 'Save and find my people' : 'Save profile'}</button>
+    <div class="dlg-actions${signedIn ? ' split' : ''}">
+      ${signedIn ? '<button type="button" class="btn ghost" id="pSignOut">Sign out</button>' : ''}
+      <div class="dlg-end">
+        <button type="button" class="btn ghost" id="pCancel">Cancel</button>
+        <button type="submit" class="btn primary">${opts.thenSearch ? 'Save and find my people' : 'Save profile'}</button>
+      </div>
     </div></form>`;
   d.showModal();
   $('#pName').focus();
   $('#pCancel').addEventListener('click', () => d.close());
+  const so = $('#pSignOut');
+  if (so) so.addEventListener('click', async () => {
+    if (!confirm('Sign out? Your account and groups stay saved.')) return;
+    d.close();
+    await signOut();
+    route(false);
+  });
   const showErr = (sel, t) => { const e = $(sel); if (e) { e.innerHTML = icon.alert + `<span>${esc(t)}</span>`; e.hidden = false; } };
   // interests chips
   const interests = [...(p.interests || [])];
@@ -1346,11 +1364,7 @@ async function boot() {
   $('#navFinder').addEventListener('click', closeMenu);
   $('#navGroups').addEventListener('click', closeMenu);
   $('#profileBtn').addEventListener('click', () => openProfile());
-  $('#authBtn').addEventListener('click', () => {
-    if (state.acct) {
-      if (confirm('Sign out? Your account and groups stay saved.')) signOut();
-    } else openAuth('in');
-  });
+  $('#authBtn').addEventListener('click', () => openAuth('in'));
   try {
     const status = await apiRaw('/api/status');
     localRooms = !status.persistent;
