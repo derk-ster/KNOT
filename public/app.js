@@ -273,15 +273,9 @@ function renderHome() {
 // instead of something to read. The metallic objects are decoration only: small, slow and off for
 // anyone who asked their system for less motion.
 function renderMemberHome() {
-  const floats = ['laptop', 'heart', 'basketball', 'paper_plane', 'puzzle_piece', 'sparkle'];
-  // The same objects again at the foot of the page, so the decoration does not stop at the hero.
-  const endFloats = ['microphone', 'camera_video', 'navigation_arrow', 'headphones', 'artists_palette', 'heart_chat'];
   $('#main').innerHTML = `
   <div id="home" class="home member-home">
     <section class="mhero" aria-labelledby="h1">
-      <div class="mhero-floats" aria-hidden="true">
-        ${floats.map((n, i) => `<img class="fl fl-${i + 1}" src="assets/art/float/${n}.png" alt="" loading="lazy" decoding="async">`).join('')}
-      </div>
       <div class="mhero-copy">
         <h1 id="h1" tabindex="-1">What do <span class="mhero-hl">you</span> want<br>to do?</h1>
         <p class="mhero-sub">Say it in your own words. KNOT finds the people who fit and tells you why.</p>
@@ -346,9 +340,6 @@ function renderMemberHome() {
         <p class="msg ok small" id="offerMsg" role="status" hidden></p>
       </div>
     </section>
-    <div class="end-floats" aria-hidden="true">
-      ${endFloats.map((n, i) => `<img class="ef ef-${i + 1}" src="assets/art/float/${n}.png" alt="" loading="lazy" decoding="async">`).join('')}
-    </div>
   </div>`;
   $('#h1').focus({ preventScroll: true });
 
@@ -761,13 +752,13 @@ function openAuth(mode = 'in') {
     <fieldset class="field"><legend>Interests <span class="opt">(up to 3, optional)</span></legend>
       <div class="chips" id="aInterestChips"></div>
       <div class="interest-row" id="aInterestRow"><input id="aInterest" type="text" maxlength="40" autocomplete="off" placeholder="e.g. filmmaking, chess, running"><button type="button" class="btn ghost sm" id="aInterestAdd">Add</button></div>
-    </fieldset>
-    <div class="field center"><label class="toggle agree"><input type="checkbox" id="a18"><span>I am 18 years or older.</span></label></div>` : `
+    </fieldset>` : `
     <div class="field"><label for="aEmail">Email</label><input id="aEmail" type="email" maxlength="120" autocomplete="email" required></div>
     <div class="field"><label for="aPass">Password</label><input id="aPass" type="password" maxlength="200" autocomplete="current-password"></div>`}
     <p class="msg err" id="aAuthErr" role="alert" hidden></p>
-    <div class="dlg-actions spread">
+    <div class="dlg-actions ${isUp ? 'with-age' : 'spread'}">
       <button type="button" class="btn ghost" id="aSwap">${isUp ? 'I have an account' : 'New here? Create an account'}</button>
+      ${isUp ? '<label class="toggle agree age"><input type="checkbox" id="a18"><span>I am 18 years or older.</span></label>' : ''}
       <button type="submit" class="btn primary" id="aSubmit">${isUp ? 'Create account' : 'Sign in'}</button>
     </div></form>`;
   d.showModal(); wireDialogClose(d);
