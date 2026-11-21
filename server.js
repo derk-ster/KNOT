@@ -660,11 +660,11 @@ async function api(req, res, url) {
       const meMember = room.members.find(x => x.pid === myPid) || null;
       // The member's message is followed by a short exchange between the demo profiles: each one
       // answers the line before it, including the other profiles, so the room reads like people
-      // talking together rather than a question and one answer. The burst is capped at one turn per
-      // profile (three at most), then the profiles stop and wait: the room always leaves space for
-      // the member to jump back in.
+      // talking together rather than a question and one answer. With two profiles that is Maya,
+      // Priya, then Maya again; the last turn always hands the conversation back to the member by
+      // name, so the room returns to them and waits instead of trailing off between the profiles.
       if (!msg.duplicate && !askAi && (room.demoMembers || []).length) {
-        const turns = Math.min(3, (room.demoMembers || []).length);
+        const turns = Math.min(4, (room.demoMembers || []).length + 1);
         // With a model configured each turn is a real call, so the burst keeps to a time budget:
         // the request returns in time, the lines already written stay in the room, and the poll
         // shows them as they land. Without a model the turns are instant and all of them happen.
@@ -687,7 +687,7 @@ async function api(req, res, url) {
           if (!speaker) break;
           setTyping(room.id, 'demo:' + speaker.name, speaker.name, { demo: true });
           try {
-            const out = await demoReply({ room: thread, lastText, me: meMember, mePid: myPid });
+            const out = await demoReply({ room: thread, lastText, me: meMember, mePid: myPid, final: i === turns - 1 });
             if (!out || !out.text) break;
             const line = await store.addMessage(room, { authorName: out.name, text: out.text, kind: 'demo' });
             replies.push(line); written.push(line); lastText = out.text;
@@ -697,7 +697,8 @@ async function api(req, res, url) {
       }
       const history = (room.messages || []).slice(-6).map(x => ({ role: x.kind === 'assistant' ? 'assistant' : 'user', content: x.text }));
       // The member asked KNOT AI something directly, so it answers that question rather than the
-      // room in general. Only ever one AI line per message, never as a human.
+      // room in general. The helper may add a second short message when it has a suggestion to add
+      // (that is what asking for more gets), and it is never written as a human.
       if (askAi && !msg.duplicate) {
         // The room sees "/ai what should we do first?"; the helper is asked only the question that
         // followed the command, so the command word never becomes part of the prompt.
@@ -708,20 +709,41 @@ async function api(req, res, url) {
           // this room, so it can answer them by name and remember what they already told the group.
           const out = await roomAssistant({ room, me: meMember, mePid: myPid, question: aiQuestion, history });
           replies.push(await store.addMessage(room, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' }));
+          // A second line is a second message, so the room sees the helper talking to the group the
+          // way a member would, not one long paragraph.
+          if (out.follow) replies.push(await store.addMessage(room, { authorName: 'KNOT AI', text: out.follow, kind: 'assistant' }));
         } catch {
           // A question to KNOT AI always gets an answer. If even the plain answer fails, the member
           // still sees something under their question rather than nothing at all.
           const line = await store.addMessage(room, { authorName: 'KNOT AI', text: localRoomReply({ room, me: meMember, pid: myPid, question: aiQuestion }), kind: 'assistant' }).catch(() => null);
           if (line) replies.push(line);
         } finally { clearTyping(room.id, 'knot-ai'); }
+        // Everyone gets a chance to come in: after the helper answers, one demo profile replies to
+        // it and hands the conversation back to the member, so the group keeps talking and the room
+        // still ends on the person it belongs to.
+        const lastAi = replies.filter(r => r && r.kind === 'assistant').pop();
+        if (lastAi && (room.demoMembers || []).length) {
+          const thread = { ...room, messages: [...(room.messages || []), msg, ...replies] };
+          const speaker = pickSpeaker(thread);
+          if (speaker) {
+            setTyping(room.id, 'demo:' + speaker.name, speaker.name, { demo: true });
+            try {
+              const out = await demoReply({ room: thread, lastText: lastAi.text, me: meMember, mePid: myPid, final: true });
+              if (out && out.text) replies.push(await store.addMessage(room, { authorName: out.name, text: out.text, kind: 'demo' }));
+            } catch { /* the helper already answered; the demo is a bonus */ }
+            finally { clearTyping(room.id, 'demo:' + speaker.name); }
+          }
+        }
       }
-      // ai_mode 'on': after each member message, KNOT AI posts one short reply (never as a human).
-      // Skipped when the member already asked it something, so it never answers twice.
+      // ai_mode 'on': after each member message, KNOT AI posts its reply (and a suggestion after it
+      // when it has one), never as a human. Skipped when the member already asked it something, so
+      // it never answers twice.
       if (room.aiMode === 'on' && !askAi && !msg.duplicate) {
         setTyping(room.id, 'knot-ai', 'KNOT AI', { ai: true });
         try {
           const out = await roomAssistant({ room, me: meMember, mePid: myPid, question: 'Respond to the latest message and move the group forward.', history });
           replies.push(await store.addMessage(room, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' }));
+          if (out.follow) replies.push(await store.addMessage(room, { authorName: 'KNOT AI', text: out.follow, kind: 'assistant' }));
         } catch { /* AI is optional; the member message already posted */ } finally { clearTyping(room.id, 'knot-ai'); }
       }
       return send(res, 201, { message: msg, replies });

@@ -484,10 +484,12 @@ body.booted .reveal { animation: reveal-in 420ms var(--ease) forwards; }
 .cmd-hint { color: var(--muted); font-size: .84rem; line-height: 1.35; }
 .cmd-foot { color: var(--muted); font-size: .78rem; padding: 7px 10px 3px; border-top: 1px solid var(--line); margin-top: 4px; }
 .chat-hint { margin-top: 8px; font-size: .85rem; }
-/* Who is typing: the same three dots the AI Finder uses, with the name beside them, sitting where
-   the next message will land. It is a live region so a screen reader hears it once per change. */
-.typing-line { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 0 4px; color: var(--muted); font-size: .88rem; min-height: 22px; }
-.typing-line[hidden] { display: none; }
+/* Who is typing: the same three dots the AI Finder uses, with the name beside them, stacked at the
+   end of the chat under the newest message and left aligned like the messages above them, so two
+   people typing read as two people. It is a live region, so a screen reader hears it once per change. */
+.typing-stack { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.typing-stack[hidden] { display: none; }
+.typing-row { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: .88rem; max-width: 100%; }
 .typing-dots { display: inline-flex; gap: 4px; flex: none; }
 .typing-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--violet); opacity: .4; animation: dot 1s infinite ease-in-out; }
 .typing-dots i:nth-child(2) { animation-delay: .15s; }

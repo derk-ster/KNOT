@@ -1367,22 +1367,29 @@ async function pollTyping() {
   } catch { /* presence is a courtesy; the room works without it */ }
 }
 
-// "Sam is typing", "Sam and Priya are typing", "Sam and 2 others are typing". KNOT AI and the demo
-// profiles are named too, so the dots always say who they belong to.
+// "Sam is typing", one row per person, stacked under the newest message and left aligned like the
+// messages above them, so two people typing read as two people and not as one long line. KNOT AI
+// and the demo profiles are named too, so the dots always say who they belong to.
 function paintTyping() {
-  const line = $('#typingLine'), who = $('#typingWho');
-  if (!line || !who) return;
+  const box = $('#typingLine');
+  if (!box) return;
   const list = (roomState && roomState.typing) || [];
-  const names = [];
-  for (const t of list) if (!names.includes(t.name)) names.push(t.name);
-  let text = '';
-  if (names.length === 1) {
-    const ai = list.every(t => t.ai);
-    text = ai ? 'KNOT AI is typing' : names[0] + ' is typing';
-  } else if (names.length === 2) text = names[0] + ' and ' + names[1] + ' are typing';
-  else if (names.length > 2) text = names[0] + ' and ' + (names.length - 1) + ' others are typing';
-  if (who.textContent !== text) who.textContent = text;
-  line.hidden = !text;
+  const seen = new Set();
+  const rows = [];
+  for (const t of list) {
+    const name = t && t.ai ? 'KNOT AI' : String((t && t.name) || '').trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    rows.push(`<p class="typing-row"><span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="typing-who">${esc(name)} is typing</span></p>`);
+  }
+  // The rows live at the end of the chat, so they only pull the view down when the person was
+  // already at the newest message: scrolling up to read never gets yanked away.
+  const log = box.parentElement;
+  const atBottom = !log || (log.scrollHeight - log.scrollTop - log.clientHeight) < 60;
+  const html = rows.join('');
+  if (box.innerHTML !== html) box.innerHTML = html;
+  box.hidden = !rows.length;
+  if (rows.length && atBottom && log) log.scrollTop = log.scrollHeight;
 }
 
 // The commands the "/" palette offers in a group chat. They are handled in this file and never
@@ -1495,8 +1502,8 @@ function paintRoom(room, isPoll) {
     <div class="chat-col">
       <div class="chat msgs" id="msgLog" role="log" aria-live="polite" aria-label="Group chat">
         ${msgs.length ? msgs.map(msgBubble).join('') : `<div class="bubble bot">The group is tied. Say hi and get things moving.</div>`}
+        ${room.isMember ? `<div class="typing-stack" id="typingLine" role="status" aria-live="polite" hidden></div>` : ''}
       </div>
-      ${room.isMember ? `<div class="typing-line" id="typingLine" role="status" aria-live="polite" hidden><span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="typing-who" id="typingWho"></span></div>` : ''}
       ${room.isMember ? `
       <form id="msgForm" class="chat-form" novalidate>
         <label class="sr" for="msgInput">Message</label>

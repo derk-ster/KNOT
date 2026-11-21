@@ -157,10 +157,12 @@ test('demo profiles answer in a sandbox group, always tagged demo', async () => 
   const r = await post(`/api/rooms/${room.id}/messages`, { text: 'Hi everyone, when should we meet?' }, j);
   assert.equal(r.status, 201);
   const { replies } = await r.json();
-  // The two demo profiles answer one after the other, so the room is a conversation between them
-  // and not a single reply to the member, and then it stops and waits for the member again.
-  assert.equal(replies.length, 2, 'each demo profile takes a turn, then the room waits for the member');
+  // The two demo profiles answer one after the other and then the first comes back, so the room is
+  // a conversation between them, and the last line hands it back to the member.
+  assert.equal(replies.length, 3, 'two profiles answer each other, then one of them hands it back');
   assert.notEqual(replies[0].authorName, replies[1].authorName, 'the profiles answer each other, not themselves');
+  assert.equal(replies[2].authorName, replies[0].authorName, 'the profile who opened comes back to answer the second');
+  assert.match(replies[2].text, /over to you|what do you|does that work for you|what do you think/i, 'the last line returns to the member: ' + replies[2].text);
   for (const bot of replies) {
     assert.equal(bot.kind, 'demo', 'every reply is stored as a demo message');
     assert.ok(room.members.some(m => m.demo && m.name === bot.authorName), 'the speaker is one of the room demo profiles');
@@ -170,7 +172,7 @@ test('demo profiles answer in a sandbox group, always tagged demo', async () => 
   assert.ok(replies.every(b => list.some(m => m.id === b.id && m.kind === 'demo')), 'every demo line is persisted with its tag');
   const r2 = await post(`/api/rooms/${room.id}/messages`, { text: 'I can bring a board.' }, j);
   const { replies: second } = await r2.json();
-  assert.equal(second.length, 2, 'the next message gets its own exchange');
+  assert.equal(second.length, 3, 'the next message gets its own exchange');
   assert.notEqual(second[0].authorName, second[1].authorName);
 });
 
@@ -180,9 +182,9 @@ test('demo profiles talk to each other in a short burst, then the room waits for
   const ids = ['maya-okafor', 'kai-nakamura', 'priya-raman', 'hugo-tanaka', 'esther-cole'];
   const { room } = await (await post('/api/rooms', { requestId: 'req-burst', title: 'Burst lab', goal: 'Make a short film in Plano.', memberIds: ids }, j)).json();
   const { replies } = await (await post(`/api/rooms/${room.id}/messages`, { text: 'I can edit the film. Who is in?' }, j)).json();
-  assert.equal(replies.length, 3, 'the exchange is capped at three turns, so it always leaves room for the member');
-  const speakers = new Set(replies.map(r => r.authorName));
-  assert.equal(speakers.size, 3, 'three different profiles speak, so they are talking to each other');
+  assert.equal(replies.length, 4, 'the exchange is capped at four turns, so it always leaves room for the member');
+  assert.ok(new Set(replies.map(r => r.authorName)).size >= 3, 'several profiles speak, so they are talking to each other');
+  assert.match(replies[replies.length - 1].text, /over to you|what do you|does that work for you|what do you think/i, 'the exchange ends on the member, not between the profiles');
   assert.ok(replies.every(r => r.kind === 'demo'), 'every line is a tagged demo line');
   // Nothing is said twice inside the exchange, so it reads like a conversation and not a loop.
   assert.equal(new Set(replies.map(r => r.text)).size, replies.length);

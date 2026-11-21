@@ -48,6 +48,47 @@ test('the room helper calls the configured model and gives it what it remembers'
   assert.match(sys, /topic|poster/i, 'the thread itself is in the prompt');
 });
 
+test('asking the helper for more gets a second message, not a longer one', async () => {
+  aiOn = true; calls = [];
+  next = async () => ({ reply: 'Ada can take the edit.', follow: 'Put the poster first and the edit second. Does that order work?' });
+  const room = makeRoom();
+  const out = await ai.roomAssistant({ room, me: meOf(room), mePid: 'a:1', question: 'What else should we do?' });
+  assert.equal(out.reply, 'Ada can take the edit.');
+  assert.match(out.follow, /poster first/, 'the suggestion comes as its own message');
+  assert.match(calls[0].system, /"follow"/, 'the model is told it may add one more message');
+  // A second line that just repeats the answer is dropped: two bubbles saying the same thing is
+  // worse than one.
+  next = async () => ({ reply: 'Ada can take the edit.', follow: 'Ada can take the edit!' });
+  const dup = await ai.roomAssistant({ room, me: meOf(room), mePid: 'a:1', question: 'What else?' });
+  assert.equal(dup.follow, null);
+  // With no model the helper still adds one, built from stored facts, when the group asked for more.
+  aiOn = false;
+  const plain = await ai.roomAssistant({ room, me: meOf(room), mePid: 'a:1', question: 'Plan the next steps for this group.' });
+  assert.ok(plain.reply && plain.follow, 'a plan question gets two messages');
+  assert.notEqual(plain.reply, plain.follow);
+  assert.match(plain.follow, /Ada|Maya|Saturday|Sunday|Plano|poster|step|piece/i, 'the second line is built from the room');
+  const quiet = await ai.roomAssistant({ room, me: meOf(room), mePid: 'a:1', question: 'who is free on Saturday?' });
+  assert.equal(quiet.follow, null, 'a plain question stays one message');
+});
+
+test('a demo profile hands the conversation back to the member on the last turn', () => {
+  const kai = { name: 'Kai Nakamura', city: 'Plano', skillLabels: ['gaming'], availabilityDays: ['saturday'] };
+  const maya = { name: 'Maya Okafor', city: 'Plano', skillLabels: ['video editing'], availabilityDays: ['sunday'] };
+  const room = {
+    demoMembers: [maya, kai],
+    messages: [
+      { kind: 'user', authorName: 'Sam', text: 'I can edit the film.' },
+      { kind: 'demo', authorName: 'Maya Okafor', text: 'I can take video editing, Sam. Who else is in?' }
+    ]
+  };
+  const last = demo.localReply(kai, room, 'I can take video editing, Sam. Who else is in?', { name: 'Sam' }, { final: true });
+  assert.match(last, /over to you|what do you|does that work for you/i, 'the room comes back to the member: ' + last);
+  // A member with no name of their own still gets the hand back, without being called "Guest 4821".
+  const guest = demo.localReply(kai, room, 'I can take video editing, Sam. Who else is in?', { name: 'Guest 4821' }, { final: true });
+  assert.match(guest, /over to you|what do you|does that work for you/i, guest);
+  assert.ok(!/Guest 4821/.test(guest), 'a guest number is not read back to them: ' + guest);
+});
+
 test('a failing model still leaves an answer in the room, built from stored facts', async () => {
   aiOn = true;
   next = async () => { throw new Error('The AI service returned 500'); };
