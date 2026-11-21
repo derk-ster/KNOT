@@ -1459,6 +1459,9 @@ function paintRoom(room, isPoll) {
     && prevReqs === ((room.joinRequests || []).length)) return;
   roomState.room = room;
   roomState.lastCount = msgs.length;
+  // Which messages are already on screen, so a reply that arrives in a send response is never drawn
+  // twice when the poll has already painted it.
+  roomState.ids = new Set(msgs.map(m => m.id).filter(Boolean));
   roomState.memberCount = (room.members || []).length;
   roomState.reqCount = (room.joinRequests || []).length;
   // Keep an in-progress draft and the caret when a poll repaints the room.
@@ -1605,9 +1608,12 @@ function paintRoom(room, isPoll) {
     try {
       const out = await api(`/api/rooms/${encodeURIComponent(room.id)}/messages`, { method: 'POST', body: JSON.stringify(body) });
       // Demo profiles and KNOT AI answer in the same request, so their lines land without a poll.
-      if (log2 && out && Array.isArray(out.replies) && out.replies.length) {
-        log2.insertAdjacentHTML('beforeend', out.replies.map(msgBubble).join(''));
+      // A line the poll already drew is skipped, so the exchange is never shown twice.
+      const fresh = (out && Array.isArray(out.replies) ? out.replies : []).filter(m => m && !(roomState && roomState.ids && roomState.ids.has(m.id)));
+      if (log2 && fresh.length) {
+        log2.insertAdjacentHTML('beforeend', fresh.map(msgBubble).join(''));
         log2.scrollTop = log2.scrollHeight;
+        if (roomState && roomState.ids) fresh.forEach(m => roomState.ids.add(m.id));
       }
     } catch (ex) {
       // Nothing was posted, so nothing is lost: the line the member was writing comes back, the

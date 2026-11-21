@@ -658,13 +658,42 @@ async function api(req, res, url) {
       // The member who just spoke, from the room's own record of them. The bots are given this so
       // they can answer by name and remember what this person said earlier in the room.
       const meMember = room.members.find(x => x.pid === myPid) || null;
+      // The member's message is followed by a short exchange between the demo profiles: each one
+      // answers the line before it, including the other profiles, so the room reads like people
+      // talking together rather than a question and one answer. The burst is capped at one turn per
+      // profile (three at most), then the profiles stop and wait: the room always leaves space for
+      // the member to jump back in.
       if (!msg.duplicate && !askAi && (room.demoMembers || []).length) {
-        const speaker = pickSpeaker(room);
-        if (speaker) setTyping(room.id, 'demo:' + speaker.name, speaker.name, { demo: true });
-        try {
-          const out = await demoReply({ room: { ...room, messages: [...(room.messages || []), msg] }, lastText: text, me: meMember, mePid: myPid });
-          if (out && out.text) replies.push(await store.addMessage(room, { authorName: out.name, text: out.text, kind: 'demo' }));
-        } catch { /* the demo is optional; the member message already posted */ } finally { if (speaker) clearTyping(room.id, 'demo:' + speaker.name); }
+        const turns = Math.min(3, (room.demoMembers || []).length);
+        // With a model configured each turn is a real call, so the burst keeps to a time budget:
+        // the request returns in time, the lines already written stay in the room, and the poll
+        // shows them as they land. Without a model the turns are instant and all of them happen.
+        const startedAt = Date.now();
+        const written = [];
+        let lastText = text;
+        for (let i = 0; i < turns; i++) {
+          if (i && Date.now() - startedAt > 6000) break;
+          // The member's own message may or may not already be in room.messages depending on the
+          // store, so the thread is built by id: no message appears in it twice.
+          const seen = new Set();
+          const threadMsgs = [...(room.messages || []), msg, ...written].filter(m => {
+            if (!m) return false;
+            if (!m.id) return true;
+            if (seen.has(m.id)) return false;
+            seen.add(m.id); return true;
+          });
+          const thread = { ...room, messages: threadMsgs };
+          const speaker = pickSpeaker(thread);
+          if (!speaker) break;
+          setTyping(room.id, 'demo:' + speaker.name, speaker.name, { demo: true });
+          try {
+            const out = await demoReply({ room: thread, lastText, me: meMember, mePid: myPid });
+            if (!out || !out.text) break;
+            const line = await store.addMessage(room, { authorName: out.name, text: out.text, kind: 'demo' });
+            replies.push(line); written.push(line); lastText = out.text;
+          } catch { break; /* the demo is optional; the member message already posted */ }
+          finally { clearTyping(room.id, 'demo:' + speaker.name); }
+        }
       }
       const history = (room.messages || []).slice(-6).map(x => ({ role: x.kind === 'assistant' ? 'assistant' : 'user', content: x.text }));
       // The member asked KNOT AI something directly, so it answers that question rather than the

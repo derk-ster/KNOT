@@ -38,3 +38,53 @@ test('the speaker rotates, so one profile does not do all the talking', () => {
   assert.equal(pickSpeaker(room).name, 'Kai Nakamura', 'whoever has spoken least gets the turn');
   assert.equal(pickSpeaker({ demoMembers: [], messages: [] }), null, 'no demo profiles means no speaker');
 });
+
+// A burst of turns is what the server writes after a member speaks, so every profile in it is
+// answering the line before. Three introductions in a row is the thing people noticed first.
+const kai = { name: 'Kai Nakamura', city: 'Plano', skillLabels: ['gaming'], availabilityDays: ['saturday', 'sunday'] };
+const priya = { name: 'Priya Raman', city: 'Plano', skillLabels: ['video editing', 'marketing'] };
+
+function burst(members, opening) {
+  const room = { demoMembers: members, messages: [{ kind: 'user', authorName: 'Sam', text: opening }] };
+  const said = [];
+  for (let i = 0; i < Math.min(3, members.length); i++) {
+    const speaker = pickSpeaker(room);
+    const last = room.messages[room.messages.length - 1].text;
+    const line = localReply(speaker, room, last, null);
+    said.push({ who: speaker.name, text: line });
+    room.messages.push({ kind: 'demo', authorName: speaker.name, text: line });
+  }
+  return said;
+}
+
+test('only the first profile greets, the rest answer the line before them', () => {
+  const said = burst([maya, kai, priya], 'I want to film my bike rides with a drone.');
+  assert.match(said[0].text, /^Hi, /, 'the room is opened once');
+  assert.ok(said.slice(1).every(l => !/^Hi, /.test(l.text)), 'nobody else introduces themselves: ' + JSON.stringify(said.map(l => l.text)));
+});
+
+test('a question from the member is answered from the profile, not with a nod', () => {
+  const room = { demoMembers: [maya, kai, priya], messages: [{ kind: 'user', authorName: 'Sam', text: 'Who can edit the footage?' }] };
+  const line = localReply(maya, room, 'Who can edit the footage?', null);
+  assert.match(line, /video editing/, 'the profile offers the skill it actually lists, got: ' + line);
+  assert.match(line, /\?/, 'and still asks something back');
+});
+
+test('two profiles do not put their hand up for the same skill', () => {
+  const room = {
+    demoMembers: [maya, kai, priya],
+    messages: [
+      { kind: 'user', authorName: 'Sam', text: 'Who can edit the footage?' },
+      { kind: 'demo', authorName: 'Maya Okafor', text: 'I can take video editing. Should I start on that this week?' }
+    ]
+  };
+  const lines = [0, 1, 2].map(i => localReply(priya, room, 'Who can edit the footage?', null) + ' ' + i);
+  assert.ok(lines.every(l => !/I can (take|cover) video editing/.test(l)), 'the claim already made is respected: ' + JSON.stringify(lines));
+  assert.ok(lines.some(l => /marketing/.test(l)), 'the profile offers its other skill instead: ' + JSON.stringify(lines));
+});
+
+test('no two profiles in a burst use the same sentence with the name swapped', () => {
+  const said = burst([maya, kai, priya], 'I have a script idea too.');
+  const shape = s => String(s).toLowerCase().replace(/maya|kai|priya/g, ' ').replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 6).join(' ');
+  assert.equal(new Set(said.map(l => shape(l.text))).size, said.length, 'the shapes differ: ' + JSON.stringify(said.map(l => l.text)));
+});
