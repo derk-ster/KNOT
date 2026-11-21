@@ -1,5 +1,8 @@
 {
   "framework": null,
   "outputDirectory": "public",
-  "functions": { "api/[...path].js": { "includeFiles": "{data,lib}/**", "maxDuration": 10 } }
+  "functions": { "api/[...path].js": { "includeFiles": "{data,lib}/**", "maxDuration": 10 } },
+  "rewrites": [
+    { "source": "/api/:first/:rest*", "destination": "/api/:first?knotpath=:rest" }
+  ]
 }

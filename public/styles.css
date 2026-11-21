@@ -412,6 +412,8 @@ dialog[open] { animation: cardIn var(--t-mid) var(--ease) both; }
 .field input:disabled { background: var(--paper); color: var(--muted); }
 .field input[type=password] { letter-spacing: .3em; }
 .interest-row { display: flex; gap: 8px; }
+.interest-row[hidden] { display: none; }
+.field.center { justify-items: center; }
 .interest-row input { flex: 1; min-width: 0; min-height: 44px; border: 1.5px solid var(--line); border-radius: 12px; padding: 0 14px; }
 .avatar-row { display: flex; gap: 14px; align-items: center; }
 .avatar-btns { display: grid; gap: 6px; }

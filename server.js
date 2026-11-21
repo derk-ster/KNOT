@@ -182,6 +182,11 @@ async function ageAllowsResolved(room, user) {
 
 async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // after "api"
+  // On Vercel the function only receives one path segment (/api/<first>); anything deeper is
+  // folded into knotpath=<rest> by the rewrite in vercel.json. Put it back so every route below
+  // sees the same parts locally and in production.
+  const folded = url.searchParams.get('knotpath');
+  if (folded && parts.length === 1) parts.push(...folded.split('/').filter(Boolean));
   const m = req.method;
 
   if (m === 'GET' && parts[0] === 'status') {

@@ -525,9 +525,9 @@ function openAuth(mode = 'in') {
     <div class="field"><label for="aName">Display name</label><input id="aName" type="text" maxlength="40" autocomplete="nickname"></div>
     <fieldset class="field"><legend>Interests <span class="opt">(up to 3, optional)</span></legend>
       <div class="chips" id="aInterestChips"></div>
-      <div class="interest-row"><input id="aInterest" type="text" maxlength="40" autocomplete="off" placeholder="e.g. filmmaking, chess, running"><button type="button" class="btn ghost sm" id="aInterestAdd">Add</button></div>
+      <div class="interest-row" id="aInterestRow"><input id="aInterest" type="text" maxlength="40" autocomplete="off" placeholder="e.g. filmmaking, chess, running"><button type="button" class="btn ghost sm" id="aInterestAdd">Add</button></div>
     </fieldset>
-    <div class="field"><label class="toggle agree"><input type="checkbox" id="a18"><span>I am 18 years or older.</span></label></div>` : `
+    <div class="field center"><label class="toggle agree"><input type="checkbox" id="a18"><span>I am 18 years or older.</span></label></div>` : `
     <div class="field"><label for="aEmail">Email</label><input id="aEmail" type="email" maxlength="120" autocomplete="email" required></div>
     <div class="field"><label for="aPass">Password</label><input id="aPass" type="password" maxlength="200" autocomplete="current-password"></div>`}
     <p class="msg err" id="aAuthErr" role="alert" hidden></p>
@@ -545,11 +545,15 @@ function openAuth(mode = 'in') {
   const paintInterests = () => {
     $('#aInterestChips').innerHTML = interests.map((x, i) => `<span class="tag strong">${esc(x)}<button type="button" class="tag-x" data-rm="${i}" aria-label="Remove ${esc(x)}">${icon.x}</button></span>`).join('');
     $$('#aInterestChips [data-rm]').forEach(b => b.addEventListener('click', () => { interests.splice(Number(b.dataset.rm), 1); paintInterests(); }));
+    // Three is the limit, so once it is reached the input has nothing left to do: hide it rather
+    // than leave a field that silently refuses what is typed into it.
+    $('#aInterestRow').hidden = interests.length >= 3;
   };
   const addInterest = () => {
     const inp = $('#aInterest'); const v = inp.value.trim();
     if (v && !interests.includes(v) && interests.length < 3) { interests.push(v); paintInterests(); }
-    inp.value = ''; inp.focus();
+    inp.value = '';
+    if (interests.length < 3) inp.focus();
   };
   if (isUp) {
     $('#aInterestAdd').addEventListener('click', addInterest);
@@ -638,7 +642,7 @@ function openProfile(opts = {}) {
       <p class="msg err" id="pSkillsErr" role="alert" hidden></p></fieldset>
     <fieldset class="field"><legend>Interests <span class="opt">(up to 3)</span></legend>
       <div class="chips" id="pInterestChips"></div>
-      <div class="interest-row"><input id="pInterest" type="text" maxlength="40" autocomplete="off" placeholder="e.g. filmmaking, chess, running" value=""><button type="button" class="btn ghost sm" id="pInterestAdd">Add</button></div>
+      <div class="interest-row" id="pInterestRow"><input id="pInterest" type="text" maxlength="40" autocomplete="off" placeholder="e.g. filmmaking, chess, running" value=""><button type="button" class="btn ghost sm" id="pInterestAdd">Add</button></div>
     </fieldset>
     <div class="field"><label for="pGoals">What you want to work on <span class="opt">(optional)</span></label>
       <input id="pGoals" type="text" maxlength="300" value="${esc(p.goals)}" placeholder="e.g. make a short film this spring"></div>
@@ -667,12 +671,14 @@ function openProfile(opts = {}) {
   const paintInterests = () => {
     $('#pInterestChips').innerHTML = interests.map((x, i) => `<span class="tag strong">${esc(x)}<button type="button" class="tag-x" data-rm="${i}" aria-label="Remove ${esc(x)}">${icon.x}</button></span>`).join('');
     $$('#pInterestChips [data-rm]').forEach(b => b.addEventListener('click', () => { interests.splice(Number(b.dataset.rm), 1); paintInterests(); }));
+    $('#pInterestRow').hidden = interests.length >= 3;
   };
   paintInterests();
   const addInterest = () => {
     const inp = $('#pInterest'); const v = inp.value.trim();
     if (v && !interests.includes(v) && interests.length < 3) { interests.push(v); paintInterests(); }
-    inp.value = ''; inp.focus();
+    inp.value = '';
+    if (interests.length < 3) inp.focus();
   };
   $('#pInterestAdd').addEventListener('click', addInterest);
   $('#pInterest').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addInterest(); } });
