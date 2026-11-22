@@ -23,7 +23,7 @@ Open http://localhost:3000. Use `PORT=4000 npm run dev` if 3000 is busy.
 |---|---|---|
 | `DATABASE_URL` | recommended | Postgres (Supabase) connection string. When set, groups, messages and identities are shared: every computer and the deployed site see the same data. When unset, data stays in `data/db.json` on one machine. |
 | `OPENAI_API_KEY` | optional | Enables the AI Finder chat, the help bot, AI goal reading, the group assistant and image moderation. Matching itself never needs AI. |
-| `OPENAI_MODEL` | required with `OPENAI_API_KEY` | The chat model. Set it explicitly, there is no default. A key without a model name is not enough: the server raises an error rather than inventing one. |
+| `OPENAI_MODEL` | required with `OPENAI_API_KEY` | The chat model. Set it explicitly, there is no default. If only one model is set, both tiers use it. A key without a model is shown in the app as "no-model" and the server never invents a name. Use `npm run ai:models` to see what your key can use, and `npm run ai:check` to test it. |
 | `OPENAI_FAST_MODEL` | required with `OPENAI_API_KEY` | The cheaper model used for the fast tier (reading the goal text). |
 | `OPENAI_MODERATION_MODEL` | optional | Moderation model, defaults to `omni-moderation-latest`. |
 | `GROQ_API_KEY` | optional | Fallback provider, used only when OpenAI is unconfigured or a call fails. |
@@ -57,6 +57,6 @@ Never put real keys in committed files. `.env` is git-ignored.
 
 - **Port in use**: another KNOT instance is running. `pkill -f "node server.js"` or use another `PORT`.
 - **`npm run db:check` fails**: re-check the connection string (pooler host, port 6543, password). Supabase pauses free projects after inactivity; restore the project in the dashboard.
-- **AI Finder says it's switched off**: no `OPENAI_API_KEY` on that server, or the key is set but `OPENAI_MODEL` / `OPENAI_FAST_MODEL` are missing. Matching still works fully without it.
+- **AI Finder says it's switched off or needs a model**: no `OPENAI_API_KEY` on that server, or the key is set but `OPENAI_MODEL` is missing (the Finder page and the server log say which). Matching still works fully without it. Run `npm run ai:check` locally to see whether the key and model answer.
 - **Everything looks local after a deploy**: check the environment scope. Variables set to Production only are invisible to Preview deployments, which then fall back to browser storage and local matching rules.
 - **A teen-scoped group or "members 18 and over" error in an old database**: expected. New signups are adults only. Groups created by earlier builds stay teen-scoped, so they refuse new adult accounts rather than silently changing age rules. This is not a broken flow.

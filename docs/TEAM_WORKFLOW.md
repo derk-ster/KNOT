@@ -25,7 +25,7 @@ git push -u origin feature/your-topic  # 4. push your branch
 - Never `git push --force`, never `git reset --hard` on shared branches, never rewrite pushed history.
 - If `git push` is rejected: `git pull --rebase origin main`, resolve conflicts by keeping BOTH sides where sensible, re-run `npm test`, then push.
 - Claim files: tell the team (chat) which files you are editing before you edit them. The natural split:
-  - `public/app.js`, `public/styles.css` (frontend/UI)
+  - `public/js/`, `public/styles.css` (frontend/UI)
   - `lib/match.js`, `data/profiles.json` (matching/seed data)
   - `server.js`, `lib/store-*.js` (backend)
   - `docs/` (PM)

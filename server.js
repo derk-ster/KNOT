@@ -122,6 +122,16 @@ function mePayload(user, account) {
   };
 }
 
+// Why a display name cannot be saved for this account, or null. The stored password hash is checked,
+// because a profile save does not carry the password: a name equal to the password is refused here.
+async function nameRefused(accountId, name) {
+  const current = await store.getAccountById(accountId);
+  if (!current) return null;
+  const full = await store.getAccountByEmail(current.email);
+  if (full && auth.verifyPassword(name, full.passwordHash)) return 'Your display name cannot be your password. Pick a name other members will know you by.';
+  return auth.nameProblem(name, { email: current.email });
+}
+
 function publicRoom(room, withMessages, user) {
   const realMembers = (room.members || []).map(m => ({
     id: m.pid, name: m.name, role: m.role || 'member', demo: false, you: user ? m.pid === (user.accountId ? 'a:' + user.accountId : String(user.id)) : false,
@@ -227,6 +237,25 @@ async function ageAllowsResolved(room, user) {
   return account.ageCategory === room.ageScope;
 }
 
+// The answer steps for one member message: KNOT AI first when it was asked, otherwise the demo
+// profiles' short exchange, then KNOT AI if the group has it set to reply to everyone.
+const STEP_KINDS = new Set(['ai', 'demo', 'auto-ai']);
+function firstStep(room, { askAi, question }) {
+  if (askAi) return { kind: 'ai', question: question || null, ask: true, turn: 0, of: 1 };
+  const demo = (room.demoMembers || []).length;
+  if (demo) return { kind: 'demo', turn: 0, of: Math.min(4, demo + 1), ask: false };
+  if (room.aiMode === 'on') return { kind: 'auto-ai', ask: false, turn: 0, of: 1 };
+  return null;
+}
+// The browser sends back a step it was given; only well-formed steps are accepted.
+function sanitizeStep(n) {
+  if (!n || typeof n !== 'object' || !STEP_KINDS.has(n.kind)) return null;
+  const turn = Number.isInteger(n.turn) ? n.turn : 0;
+  const of = Number.isInteger(n.of) ? n.of : 1;
+  if (n.kind === 'demo' && (turn < 0 || of < 1 || of > 5 || turn >= of)) return null;
+  return { kind: n.kind, turn, of, ask: n.ask === true, question: str(n.question, 500) || null };
+}
+
 async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // after "api"
   // On Vercel the function only receives one path segment (/api/<first>); anything deeper is
@@ -239,7 +268,8 @@ async function api(req, res, url) {
   if (m === 'GET' && parts[0] === 'status') {
     const s = llm.status();
     return send(res, 200, {
-      matcher: 'local-rules', ai: s.ai, aiProvider: s.provider, aiModels: s.ai ? s.aiModels : null,
+      matcher: 'local-rules', ai: s.ai, aiState: s.state, aiProvider: s.provider, aiModel: s.model, aiModels: s.ai ? s.aiModels : null,
+      aiCheck: s.lastCheck ? { at: s.lastCheck.at, ok: s.lastCheck.ok } : null,
       storage: store.kind === 'postgres' ? 'shared-postgres' : (process.env.VERCEL ? 'browser' : 'data/db.json'),
       persistent: store.kind === 'postgres' || !process.env.VERCEL, profiles: profiles.length
     });
@@ -258,6 +288,8 @@ async function api(req, res, url) {
       if (!name) return send(res, 400, { error: 'Add a display name.' });
       const pwErr = auth.passwordProblem(b.password);
       if (pwErr) return send(res, 400, { error: pwErr });
+      const nameErr = auth.nameProblem(name, { password: b.password, email });
+      if (nameErr) return send(res, 400, { error: nameErr });
       if (b.confirm18 !== true) return send(res, 400, { error: 'KNOT is for members 18 and over. Confirm your age to continue.' });
       const interests = (Array.isArray(b.interests) ? b.interests : []).map(x => str(x, 40)).filter(Boolean).slice(0, 3);
       const mod = await checkMessage(name + ' ' + interests.join(' '));
@@ -287,14 +319,24 @@ async function api(req, res, url) {
       if (!limited(req, 'auth', Number(process.env.KNOT_AUTH_RATE_MAX) || 10)) return send(res, 429, { error: 'Too many attempts. Wait a minute and try again.' });
       const b = await readBody(req);
       const email = str(b.email, 120).toLowerCase();
-      const account = await store.getAccountByEmail(email);
+      let account = await store.getAccountByEmail(email);
       // Same message for unknown email and wrong password: do not reveal which accounts exist.
       if (!account || account.deleted || !auth.verifyPassword(String(b.password || ''), account.passwordHash)) {
         return send(res, 401, { error: 'Email or password is not right.' });
       }
+      // Repair for names saved as the password by an earlier build: the password just proved
+      // correct, and it is the name, so the name becomes the email's first part and the profile
+      // opens so the person can choose a real one.
+      let nameReset = false;
+      if (account.name === String(b.password || '')) {
+        const local = str(String(account.email || '').split('@')[0], 40) || 'Member';
+        account = await store.updateAccount(account.id, { name: local });
+        nameReset = true;
+      }
       await store.adoptAccount(user.id, account.id);
       await store.updateUser(user.id, { name: account.name, isGuest: false });
-      return send(res, 200, mePayload(await store.ensureUser(user._sid), account));
+      const out = mePayload(await store.ensureUser(user._sid), account);
+      return send(res, 200, nameReset ? { ...out, nameReset: true } : out);
     }
     if (m === 'POST' && parts[1] === 'signout') {
       await store.updateUser(user.id, { isGuest: true, accountId: null });
@@ -321,6 +363,10 @@ async function api(req, res, url) {
       }
       const fields = {};
       if (b.name !== undefined) fields.name = str(b.name, 40);
+      if (fields.name !== undefined) {
+        const refused = await nameRefused(user.accountId, fields.name);
+        if (refused) return send(res, 400, { error: refused });
+      }
       if (b.bio !== undefined) fields.bio = str(b.bio, 300);
       if (b.interests !== undefined) fields.interests = (Array.isArray(b.interests) ? b.interests : []).map(x => str(x, 40)).filter(Boolean).slice(0, 3);
       if (b.skills !== undefined) fields.skills = (Array.isArray(b.skills) ? b.skills : []).filter(id => SKILL_IDS.has(id)).slice(0, 12);
@@ -384,7 +430,11 @@ async function api(req, res, url) {
     const b = await readBody(req);
     const name = str(b.name, 40);
     if (!name) return send(res, 400, { error: 'Add a display name first.' });
-    if (user.accountId) await store.updateAccount(user.accountId, { name });
+    if (user.accountId) {
+      const refused = await nameRefused(user.accountId, name);
+      if (refused) return send(res, 400, { error: refused });
+      await store.updateAccount(user.accountId, { name });
+    }
     const u = await store.updateUser(user.id, { name, isGuest: !user.accountId });
     return send(res, 200, mePayload(u, user.accountId ? await store.getAccountById(user.accountId) : null));
   }
@@ -584,9 +634,15 @@ async function api(req, res, url) {
       if (canMod) { payload.joinRequests = await store.listJoinRequests(room); payload.bans = await store.listBans(room); }
       return send(res, 200, { room: payload, next: guide.fromRoom({ messages: room.messages || [] }) });
     }
+    // New messages only, for the browser's poll: pass the timestamp of the last one it has. The
+    // boundary is inclusive, so two messages in the same millisecond are never missed; the browser
+    // drops any it already shows, by id.
     if (m === 'GET' && parts[2] === 'messages') {
-      const msgs = await store.listMessagesAfter(room, url.searchParams.get('after'));
-      return send(res, 200, { messages: msgs });
+      const msgs = (await store.listMessagesAfter(room, url.searchParams.get('after'))).map(x => ({
+        ...x,
+        you: !!(myPid && ((x.authorAccountId && 'a:' + x.authorAccountId === myPid) || (x.authorId && String(x.authorId) === myPid)))
+      }));
+      return send(res, 200, { messages: msgs, now: new Date().toISOString() });
     }
     // Who else in this room is typing right now. Members only: a previewer sees no presence, and a
     // member never sees their own note. Names come from the store, never from the request body.
@@ -646,107 +702,61 @@ async function api(req, res, url) {
         userId: user2.accountId ? null : user2.id, accountId: user2.accountId || null,
         authorName: user2.name, text, image, clientMsgId: str(b.clientMsgId, 60) || null, kind: 'user'
       });
-      const replies = [];
-      // The message arrived, so the member is no longer typing.
-      clearTyping(room.id, myPid);
-      // The fictional demo profiles answer, so a sandbox group is a chat and not a dead room. The
-      // server picks who speaks and writes the line, and it is stored as kind 'demo' so the room
-      // can label it. The client never authors these. The speaker is marked as typing while the
-      // line is written, so the room shows the same dots a member gets.
-      // A member who asked KNOT AI gets the helper's answer, not a demo profile's: the demo voices
-      // stay quiet for that message so the two never answer over each other.
-      // The member who just spoke, from the room's own record of them. The bots are given this so
-      // they can answer by name and remember what this person said earlier in the room.
-      const meMember = room.members.find(x => x.pid === myPid) || null;
-      // The member's message is followed by a short exchange between the demo profiles: each one
-      // answers the line before it, including the other profiles, so the room reads like people
-      // talking together rather than a question and one answer. With two profiles that is Maya,
-      // Priya, then Maya again; the last turn always hands the conversation back to the member by
-      // name, so the room returns to them and waits instead of trailing off between the profiles.
-      if (!msg.duplicate && !askAi && (room.demoMembers || []).length) {
-        const turns = Math.min(4, (room.demoMembers || []).length + 1);
-        // With a model configured each turn is a real call, so the burst keeps to a time budget:
-        // the request returns in time, the lines already written stay in the room, and the poll
-        // shows them as they land. Without a model the turns are instant and all of them happen.
-        const startedAt = Date.now();
-        const written = [];
-        let lastText = text;
-        for (let i = 0; i < turns; i++) {
-          if (i && Date.now() - startedAt > 6000) break;
-          // The member's own message may or may not already be in room.messages depending on the
-          // store, so the thread is built by id: no message appears in it twice.
-          const seen = new Set();
-          const threadMsgs = [...(room.messages || []), msg, ...written].filter(m => {
-            if (!m) return false;
-            if (!m.id) return true;
-            if (seen.has(m.id)) return false;
-            seen.add(m.id); return true;
-          });
-          const thread = { ...room, messages: threadMsgs };
-          const speaker = pickSpeaker(thread);
-          if (!speaker) break;
+      // The message is saved and the request returns at once. Who answers, and in what order, is
+      // decided here; the browser then asks for each line in turn (POST .../replies), so no single
+      // request waits on the model for long and every line lands in the room as it is written.
+      const aiQuestion = (str(b.aiQuestion, 500) || text.replace(/^\/[a-z]+\s*/i, '')).trim() || text;
+      const next = msg.duplicate ? null : firstStep(room, { askAi, question: aiQuestion });
+      return send(res, 201, { message: msg, replies: [], next });
+    }
+    // One step of the answers to a message: a demo profile's line, or a KNOT AI reply. The browser
+    // sends back the `next` it was given and gets the lines written, plus the step after them.
+    if (m === 'POST' && parts[2] === 'replies') {
+      if (!limited(req, 'replies', 120)) return send(res, 429, { error: 'Slow down a little and try again in a minute.' });
+      const b = await readBody(req);
+      const step = sanitizeStep(b.next);
+      if (!step) return send(res, 400, { error: 'Nothing to reply to.' });
+      const fresh = await store.getRoomRaw(room.id);
+      const lastMsg = (fresh.messages || []).slice(-1)[0];
+      const lastText = lastMsg ? lastMsg.text : '';
+      const meMember = fresh.members.find(x => x.pid === myPid) || null;
+      const history = (fresh.messages || []).slice(-6).map(x => ({ role: x.kind === 'assistant' ? 'assistant' : 'user', content: x.text }));
+      const written = [];
+      let following = null;
+      const askAiLine = async (question) => {
+        setTyping(room.id, 'knot-ai', 'KNOT AI', { ai: true });
+        try {
+          const out = await roomAssistant({ room: fresh, me: meMember, mePid: myPid, question, history });
+          written.push(await store.addMessage(fresh, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' }));
+          if (out.follow) written.push(await store.addMessage(fresh, { authorName: 'KNOT AI', text: out.follow, kind: 'assistant' }));
+        } catch {
+          // A question to KNOT AI always gets an answer, even when the model is unavailable.
+          const line = await store.addMessage(fresh, { authorName: 'KNOT AI', text: localRoomReply({ room: fresh, me: meMember, pid: myPid, question }), kind: 'assistant' }).catch(() => null);
+          if (line) written.push(line);
+        } finally { clearTyping(room.id, 'knot-ai'); }
+      };
+      if (step.kind === 'ai') {
+        if (fresh.aiMode === 'off') return send(res, 200, { messages: [], next: null });
+        await askAiLine(step.question || lastText);
+        following = (fresh.demoMembers || []).length ? { kind: 'demo', turn: 0, of: 1, ask: true } : null;
+      } else if (step.kind === 'auto-ai') {
+        if (fresh.aiMode !== 'on') return send(res, 200, { messages: [], next: null });
+        await askAiLine('Respond to the latest message and move the group forward.');
+      } else {
+        const speaker = (fresh.demoMembers || []).length ? pickSpeaker(fresh) : null;
+        if (speaker) {
           setTyping(room.id, 'demo:' + speaker.name, speaker.name, { demo: true });
           try {
-            const out = await demoReply({ room: thread, lastText, me: meMember, mePid: myPid, final: i === turns - 1 });
-            if (!out || !out.text) break;
-            const line = await store.addMessage(room, { authorName: out.name, text: out.text, kind: 'demo' });
-            replies.push(line); written.push(line); lastText = out.text;
-          } catch { break; /* the demo is optional; the member message already posted */ }
+            // The last turn of a burst hands the conversation back to the member who spoke.
+            const out = await demoReply({ room: fresh, lastText, me: meMember, mePid: myPid, final: step.turn === step.of - 1 });
+            if (out && out.text) written.push(await store.addMessage(fresh, { authorName: out.name, text: out.text, kind: 'demo' }));
+          } catch { /* the demo is optional; the member message already posted */ }
           finally { clearTyping(room.id, 'demo:' + speaker.name); }
         }
+        if (step.turn + 1 < step.of) following = { kind: 'demo', turn: step.turn + 1, of: step.of, ask: step.ask };
+        else if (!step.ask && fresh.aiMode === 'on') following = { kind: 'auto-ai', ask: false, turn: 0, of: 1 };
       }
-      const history = (room.messages || []).slice(-6).map(x => ({ role: x.kind === 'assistant' ? 'assistant' : 'user', content: x.text }));
-      // The member asked KNOT AI something directly, so it answers that question rather than the
-      // room in general. The helper may add a second short message when it has a suggestion to add
-      // (that is what asking for more gets), and it is never written as a human.
-      if (askAi && !msg.duplicate) {
-        // The room sees "/ai what should we do first?"; the helper is asked only the question that
-        // followed the command, so the command word never becomes part of the prompt.
-        const aiQuestion = (str(b.aiQuestion, 500) || text.replace(/^\/[a-z]+\s*/i, '')).trim() || text;
-        setTyping(room.id, 'knot-ai', 'KNOT AI', { ai: true });
-        try {
-          // The helper is given the asking member's stored profile and their earlier messages in
-          // this room, so it can answer them by name and remember what they already told the group.
-          const out = await roomAssistant({ room, me: meMember, mePid: myPid, question: aiQuestion, history });
-          replies.push(await store.addMessage(room, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' }));
-          // A second line is a second message, so the room sees the helper talking to the group the
-          // way a member would, not one long paragraph.
-          if (out.follow) replies.push(await store.addMessage(room, { authorName: 'KNOT AI', text: out.follow, kind: 'assistant' }));
-        } catch {
-          // A question to KNOT AI always gets an answer. If even the plain answer fails, the member
-          // still sees something under their question rather than nothing at all.
-          const line = await store.addMessage(room, { authorName: 'KNOT AI', text: localRoomReply({ room, me: meMember, pid: myPid, question: aiQuestion }), kind: 'assistant' }).catch(() => null);
-          if (line) replies.push(line);
-        } finally { clearTyping(room.id, 'knot-ai'); }
-        // Everyone gets a chance to come in: after the helper answers, one demo profile replies to
-        // it and hands the conversation back to the member, so the group keeps talking and the room
-        // still ends on the person it belongs to.
-        const lastAi = replies.filter(r => r && r.kind === 'assistant').pop();
-        if (lastAi && (room.demoMembers || []).length) {
-          const thread = { ...room, messages: [...(room.messages || []), msg, ...replies] };
-          const speaker = pickSpeaker(thread);
-          if (speaker) {
-            setTyping(room.id, 'demo:' + speaker.name, speaker.name, { demo: true });
-            try {
-              const out = await demoReply({ room: thread, lastText: lastAi.text, me: meMember, mePid: myPid, final: true });
-              if (out && out.text) replies.push(await store.addMessage(room, { authorName: out.name, text: out.text, kind: 'demo' }));
-            } catch { /* the helper already answered; the demo is a bonus */ }
-            finally { clearTyping(room.id, 'demo:' + speaker.name); }
-          }
-        }
-      }
-      // ai_mode 'on': after each member message, KNOT AI posts its reply (and a suggestion after it
-      // when it has one), never as a human. Skipped when the member already asked it something, so
-      // it never answers twice.
-      if (room.aiMode === 'on' && !askAi && !msg.duplicate) {
-        setTyping(room.id, 'knot-ai', 'KNOT AI', { ai: true });
-        try {
-          const out = await roomAssistant({ room, me: meMember, mePid: myPid, question: 'Respond to the latest message and move the group forward.', history });
-          replies.push(await store.addMessage(room, { authorName: 'KNOT AI', text: out.reply, kind: 'assistant' }));
-          if (out.follow) replies.push(await store.addMessage(room, { authorName: 'KNOT AI', text: out.follow, kind: 'assistant' }));
-        } catch { /* AI is optional; the member message already posted */ } finally { clearTyping(room.id, 'knot-ai'); }
-      }
-      return send(res, 201, { message: msg, replies });
+      return send(res, 200, { messages: written, next: following });
     }
     if (m === 'POST' && parts[2] === 'assist') {
       const pub = publicRoom(room, false, user2);
@@ -930,5 +940,17 @@ server.on('error', e => {
 server.listen(PORT, () => {
   const s = llm.status();
   console.log(`KNOT is running at http://localhost:${PORT}`);
-  console.log(`AI: ${s.ai ? s.provider + ' (' + JSON.stringify(s.aiModels) + ')' : 'off (no OPENAI_API_KEY or GROQ_API_KEY; local features still work)'}. Storage: ${store.kind === 'postgres' ? 'shared Postgres (DATABASE_URL)' : 'data/db.json (this machine only; set DATABASE_URL to share across computers)'}`);
+  console.log(`AI: ${aiLine(s)}. Storage: ${store.kind === 'postgres' ? 'shared Postgres (DATABASE_URL)' : 'data/db.json (this machine only; set DATABASE_URL to share across computers)'}`);
+  // One live call per tier, so a bad key or model shows up at boot instead of as canned replies later.
+  llm.healthCheck().then(c => {
+    if (!c) return;
+    const ok = (t) => (t ? (t.ok ? `ok (${t.model}, ${t.ms} ms)` : `FAILED (${t.model || 'no model'}): ${t.error}`) : 'same model');
+    console.log(`AI check: smart ${ok(c.smart)}; fast ${ok(c.fast)}`);
+  }).catch(() => {});
 });
+function aiLine(s) {
+  if (s.state === 'ready') return `${s.provider} (${JSON.stringify(s.aiModels)})`;
+  if (s.state === 'no-model') return 'OPENAI_API_KEY is set but no model is: set OPENAI_MODEL. Local replies are used until then';
+  if (s.state === 'rejected') return 'the OpenAI key was refused (401). Check OPENAI_API_KEY';
+  return 'off (no OPENAI_API_KEY or GROQ_API_KEY; local features still work)';
+}
