@@ -24,7 +24,7 @@ lib/
 data/profiles.json   the 51 fictional community profiles (matching reads this directly)
 public/
   index.html         single shell page (SPA)
-  app.js             entire frontend: hash router, views, polling, dialogs
+  js/                frontend as ES modules: main.js (boot), router.js, api.js, dialog.js, components/, views/
   styles.css         brand tokens + all styling (CSS variables; do not redesign)
   assets/art|fonts   optimized web copies of the Media/ pack (originals untouched)
 test/                match.test.js (matcher rules) + api.test.js (full API, temp DB)
@@ -44,7 +44,7 @@ docs/                SETUP, TEAM_WORKFLOW, DEMO, ARCHITECTURE
 ## Adding a feature
 
 1. New data → extend the store interface in **both** store files, then the API route in `server.js`.
-2. New UI → new view function in `public/app.js`, hash route in `route()`, styles in `styles.css` using existing CSS variables.
+2. New UI → a view module in `public/js/views/`, a hash route in `public/js/router.js`, styles in `styles.css` using the existing CSS variables.
 3. New matching skill → add to `SKILLS` in `lib/match.js` + a profile in `data/profiles.json`, then extend `test/match.test.js`.
 
 ## Deployment

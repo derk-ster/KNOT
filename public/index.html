@@ -4,87 +4,46 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>KNOT: find your people</title>
-  <meta name="description" content="Discover people who share your interests, build groups, and turn ideas into something real.">
+  <meta name="description" content="Find people who share your interests, build groups, and turn ideas into something real.">
   <link rel="icon" href="assets/art/knot-mark.svg" type="image/svg+xml">
   <link rel="preload" href="assets/fonts/BricolageGrotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="assets/fonts/fonts.css">
   <link rel="stylesheet" href="styles.css">
-  <script src="app.js" defer></script>
+  <script type="module" src="js/main.js"></script>
 </head>
 <body>
-  <a class="skip" href="#main">Skip to main content</a>
-  <!-- The metallic objects and the colour washes belong to the page, not to one screen: one layer
-       behind everything, spread down the whole document, so the landing page, the member home and
-       every room carry the same treatment. Decoration only, never read out, never clickable. -->
-  <div class="page-deco" aria-hidden="true">
-    <img class="pd pd-1" src="assets/art/float/laptop.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-2" src="assets/art/float/heart.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-mid pd-3" src="assets/art/float/basketball.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-4" src="assets/art/float/paper_plane.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-5" src="assets/art/float/puzzle_piece.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-6" src="assets/art/float/sparkle.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-mid pd-7" src="assets/art/float/microphone.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-8" src="assets/art/float/camera_video.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-9" src="assets/art/float/navigation_arrow.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-mid pd-10" src="assets/art/float/headphones.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-11" src="assets/art/float/artists_palette.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-12" src="assets/art/float/heart_chat.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-13" src="assets/art/float/laptop.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-mid pd-14" src="assets/art/float/heart.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-15" src="assets/art/float/basketball.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-16" src="assets/art/float/paper_plane.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-17" src="assets/art/float/puzzle_piece.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-18" src="assets/art/float/sparkle.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-mid pd-19" src="assets/art/float/microphone.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-20" src="assets/art/float/camera_video.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-21" src="assets/art/float/navigation_arrow.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-22" src="assets/art/float/headphones.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-mid pd-23" src="assets/art/float/artists_palette.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-24" src="assets/art/float/heart_chat.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-25" src="assets/art/float/laptop.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-mid pd-26" src="assets/art/float/heart.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-27" src="assets/art/float/basketball.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-28" src="assets/art/float/paper_plane.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-29" src="assets/art/float/puzzle_piece.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-mid pd-30" src="assets/art/float/sparkle.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-mid pd-31" src="assets/art/float/navigation_arrow.png" alt="" loading="lazy" decoding="async">
-    <img class="pd pd-32" src="assets/art/float/heart.png" alt="" loading="lazy" decoding="async">
-  </div>
+  <a class="skip" href="#main">Skip to content</a>
+
   <header class="site-header">
     <div class="wrap bar">
-      <a class="brand" href="#/" aria-label="KNOT, home">
+      <a class="brand" href="#/" aria-label="KNOT home">
         <img src="assets/art/knot-mark.svg" width="36" height="27" alt="">
         <span>KNOT</span>
       </a>
-      <button class="menu-btn" id="menuBtn" type="button" aria-expanded="false" aria-controls="mobileNav" aria-label="Menu">
-        <svg viewBox="0 0 20 20" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 5h14M3 10h14M3 15h14"/></svg>
-      </button>
-      <nav class="nav" id="mobileNav" aria-label="Main">
-        <a class="nav-link" id="navHome" href="#/">Home</a>
-        <a class="nav-link" id="navDiscover" href="#/discover">Discover</a>
-        <a class="nav-link" id="navFinder" href="#/finder">AI Finder</a>
-        <a class="nav-link" id="navGroups" href="#/groups">My groups <span class="count" id="groupCount" hidden></span></a>
-        <button class="profile-btn" id="profileBtn" type="button" aria-haspopup="dialog" aria-label="Your profile">
-          <span class="avatar sm" id="profileAvatar" aria-hidden="true">?</span>
-          <span id="profileLabel">Profile</span>
-        </button>
-        <button class="btn sm primary auth-btn" id="authBtn" type="button" aria-haspopup="dialog">Sign in</button>
+
+      <nav class="nav" id="nav" aria-label="Main">
+        <a class="nav-link" href="#/" data-nav="home">Home</a>
+        <a class="nav-link" href="#/discover" data-nav="discover" data-members-only hidden>Discover</a>
+        <a class="nav-link" href="#/finder" data-nav="finder" data-members-only hidden>AI Finder</a>
+        <a class="nav-link" href="#/groups" data-nav="groups" data-members-only hidden>My groups <span class="count" id="groupCount" hidden></span></a>
       </nav>
+
+      <div class="head-actions">
+        <button class="icon-btn" type="button" data-action="help" aria-haspopup="dialog" aria-expanded="false" aria-controls="helpPanel" aria-label="Help">
+          <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="8"/><path d="M7.7 7.6a2.4 2.4 0 114.1 1.9c-.9.7-1.8 1.2-1.8 2.4"/><path d="M10 15.2h.01"/></svg>
+        </button>
+        <div class="account" id="account"></div>
+        <button class="icon-btn menu-btn" type="button" data-action="menu" aria-expanded="false" aria-controls="nav" aria-label="Menu">
+          <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 5h14M3 10h14M3 15h14"/></svg>
+        </button>
+      </div>
     </div>
   </header>
+
   <main id="main" class="wrap" tabindex="-1"></main>
-  <p class="sr" id="live" role="status" aria-live="polite"></p>
-  <button class="help-fab" id="helpBtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="helpDialog">
-    <svg class="ic" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="8"/><path d="M7.7 7.6a2.4 2.4 0 114.1 1.9c-.9.7-1.8 1.2-1.8 2.4"/><path d="M10 15.2h.01"/></svg>
-    <span>Help</span>
-  </button>
-  <div id="overlayRoot"></div>
-  <dialog id="profileDialog" aria-labelledby="profileTitle"></dialog>
-  <dialog id="createDialog" aria-labelledby="createTitle"></dialog>
-  <dialog id="authDialog" aria-labelledby="authTitle"></dialog>
-  <dialog id="settingsDialog" aria-labelledby="settingsTitle"></dialog>
-  <dialog id="imgDialog" aria-label="Picture"></dialog>
-  <dialog id="askDialog" aria-labelledby="askTitle"></dialog>
-  <dialog id="helpDialog" aria-labelledby="helpTitle"></dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <section class="help-panel" id="helpPanel" aria-label="Help" hidden></section>
+  <div id="dialogRoot"></div>
 </body>
 </html>

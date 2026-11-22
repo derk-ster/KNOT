@@ -11,14 +11,14 @@ node server.js
 
 Then open http://localhost:3000. Needs Node 18+ (tested on Node 24). One dependency (`postgres`) if you use a shared database; without one, no `npm install` is even needed for local use.
 
-**Optional AI:** copy `.env.example` to `.env` and set `OPENAI_API_KEY` (or `GROQ_API_KEY` as fallback). Keys are read by the server only, never sent to the browser, and `.env` is git-ignored. Without any key the site still works: the AI Finder chat is disabled and the matching box runs on KNOT's local rules.
+**Optional AI:** copy `.env.example` to `.env`, set `OPENAI_API_KEY` and `OPENAI_MODEL` (one model is enough; it covers both tiers). `GROQ_API_KEY` is a fallback. Run `npm run ai:models` to list the models your key can use, then `npm run ai:check` to test them. Keys are read by the server only, never sent to the browser, and `.env` is git-ignored. Without any key the site still works: the AI Finder chat is disabled and the matching box runs on KNOT's local rules.
 Use `PORT=4000 node server.js` for another port. To reset local data, stop the server and delete `data/db.json`.
 
 ## Deploying on Vercel
 
 The repo is Vercel-ready: `public/` is served as static files and `api/[...path].js` runs the same API as `server.js`.
 1. Import the GitHub repo in Vercel (no build command needed; `vercel.json` sets the output folder).
-2. Optional AI: add `OPENAI_API_KEY` together with `OPENAI_MODEL` and `OPENAI_FAST_MODEL` under Project Settings → Environment Variables (never in the repo), then redeploy. All three are needed: a key without the model names has no default to fall back on. Scope them to every environment you demo from, because Production-only variables are not passed to Preview deployments.
+2. Optional AI: add `OPENAI_API_KEY` together with `OPENAI_MODEL` and `OPENAI_FAST_MODEL` under Project Settings → Environment Variables (never in the repo), then redeploy. Set `OPENAI_MODEL` (and optionally `OPENAI_FAST_MODEL`). A key without a model is shown in the app as needing one, rather than answered with canned text. Scope them to every environment you demo from, because Production-only variables are not passed to Preview deployments.
 3. For shared data, add `DATABASE_URL` (Supabase Postgres; the schema is created automatically, additively only). Without it, Vercel functions cannot keep files and **groups and chat are stored in the visitor's browser**. Locally, `node server.js` stores them in `data/db.json`.
 4. See `docs/SETUP.md` for the step-by-step Supabase setup and `docs/DEMO.md` for the presentation script.
 
@@ -44,7 +44,7 @@ The repo is Vercel-ready: `public/` is served as static files and `api/[...path]
 - `lib/store.js` : storage dispatcher (Postgres when `DATABASE_URL` is set, else `lib/store-json.js`)
 - `lib/store-pg.js` : additive-only Postgres schema and migrations
 - `data/profiles.json` : fictional demo profiles
-- `public/` : `index.html`, `app.js` (the whole SPA), `styles.css`, `assets/art`, `assets/fonts`
+- `public/` : `index.html`, `js/` (the SPA as ES modules, entry `js/main.js`), `styles.css`, `assets/art`, `assets/fonts`
 - `Media/` : original supplied art (untouched); `prep/` : the web copies made from it
 
 ## Try these (the matcher understands skills like editing, filming, design, music, basketball, tutoring)

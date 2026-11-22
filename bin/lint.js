@@ -1,19 +1,26 @@
 #!/usr/bin/env node
 'use strict';
 // Syntax check every JavaScript file in the app (no external linter installed).
+// Browser modules under public/js are ES modules, so they are checked as modules.
 const { execFileSync } = require('child_process');
-const glob = require('fs').readdirSync;
-const files = [
-  'server.js',
-  ...glob(__dirname + '/../lib').filter(f => f.endsWith('.js')).map(f => 'lib/' + f),
-  ...glob(__dirname + '/../api').filter(f => f.endsWith('.js')).map(f => 'api/' + f),
-  ...glob(__dirname + '/../public').filter(f => f.endsWith('.js')).map(f => 'public/' + f),
-  ...glob(__dirname + '/../test').filter(f => f.endsWith('.js')).map(f => 'test/' + f),
-  ...glob(__dirname + '/../bin').filter(f => f.endsWith('.js') && f !== 'lint.js').map(f => 'bin/' + f)
-];
+const fs = require('fs');
+const path = require('path');
+const root = path.join(__dirname, '..');
+
+function walk(dir, out = []) {
+  for (const name of fs.readdirSync(path.join(root, dir))) {
+    const rel = path.posix.join(dir, name);
+    if (fs.statSync(path.join(root, rel)).isDirectory()) walk(rel, out);
+    else if (name.endsWith('.js') && rel !== 'bin/lint.js') out.push(rel);
+  }
+  return out;
+}
+
+const files = ['server.js', ...walk('lib'), ...walk('api'), ...walk('public'), ...walk('test'), ...walk('bin'), ...walk('scripts')];
 let failed = 0;
 for (const f of files) {
-  try { execFileSync('node', ['--check', f], { stdio: 'pipe' }); console.log('ok   ' + f); }
+  const args = f.startsWith('public/js/') ? ['--experimental-default-type=module', '--check', f] : ['--check', f];
+  try { execFileSync('node', args, { stdio: 'pipe', cwd: root }); console.log('ok   ' + f); }
   catch (e) { failed++; console.error('FAIL ' + f + '\n' + e.stderr); }
 }
 process.exit(failed ? 1 : 0);

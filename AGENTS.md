@@ -16,7 +16,9 @@ Project: KNOT, an ITKAN hackathon app. Vanilla Node server (zero framework) + va
   `lib/llm.js` (OpenAI, then Groq) and every one of them has a local answer built from stored data, so a
   missing key or a failed call never leaves a question unanswered or a bot repeating itself.
 - `lib/session.js` logic lives in `server.js`: anonymous HttpOnly cookie (`knot_sid`). The server stamps message authors and room ownership; clients cannot claim identities.
-- `public/app.js` : the whole SPA (hash routing: `#/`, `#/finder`, `#/groups`, `#/room/:id`, `#/join/:code`). If `GET /api/status` says `persistent: false`, it keeps groups in localStorage instead (Vercel without a database).
+- `public/js/` : the SPA as ES modules, no build step. `main.js` boots and routes clicks by `data-action`; `router.js` picks the page (`#/`, `#/discover`, `#/finder`, `#/groups`, `#/profile`, `#/room/:id`, `#/join/:code`); `api.js` is the one fetch path (timeouts, plain errors); `dialog.js` is the one dialog component; `components/` holds the header and the Help panel; `views/` holds one file per page, with `match.js` shared by home and the Finder.
+- The room page appends messages and never repaints the composer. Sends show a pending bubble matched by `clientMsgId`; bot and KNOT AI lines are asked for step by step via `POST /api/rooms/:id/replies`, with the next step returned by the server.
+- AI state comes from `lib/llm.js` `status()`: `ready`, `no-model`, `rejected` or `off`. A key without a model is reported, never answered silently. `npm run ai:check` and `npm run ai:models` verify a real key locally.
 
 ## Invariants (do not break)
 
@@ -36,4 +38,8 @@ Project: KNOT, an ITKAN hackathon app. Vanilla Node server (zero framework) + va
 
 ## Deploy
 
-Vercel serves `public/` and runs `api/[...path].js`. Set `DATABASE_URL` (and optionally `GROQ_API_KEY`) in the Vercel project env. Production deploys come from `main`.
+Vercel serves `public/` and runs `api/[...path].js`. Set `DATABASE_URL` (and optionally `GROQ_API_KEY`) in the Vercel project env. Production deploys come from `main`. Without `DATABASE_URL` the app says so in the group page: groups and messages may not be kept.
+
+## Browser checks
+
+With a server running: `BASE_URL=http://localhost:3000 npm run e2e`. It signs up, signs out, signs in, sends a group message, checks the composer and profile buttons are clickable, and writes screenshots. Playwright is needed; set `KNOT_CHROMIUM` if it cannot find a browser.
