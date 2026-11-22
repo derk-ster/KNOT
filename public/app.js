@@ -959,7 +959,8 @@ function openAuth(mode = 'in') {
       state.acct = me.signedIn ? me : null;
       d.close(); paintHeader(); route(false);
       say(isUp ? 'Account created. Your groups now follow you across devices.' : 'Signed in.');
-      if (isUp) openProfile();
+      // A name that was the password is reset on sign-in; the profile opens so the member picks a real one.
+      if (isUp || me.nameReset) openProfile();
     } catch (ex) {
       submit.disabled = false; submit.textContent = isUp ? 'Try again' : 'Sign in';
       showErr(ex.message);
@@ -1616,9 +1617,18 @@ function paintRoom(room, isPoll) {
     if (opts.askAi && opts.aiQuestion) body.aiQuestion = opts.aiQuestion;
     try {
       const out = await api(`/api/rooms/${encodeURIComponent(room.id)}/messages`, { method: 'POST', body: JSON.stringify(body) });
-      // Demo profiles and KNOT AI answer in the same request, so their lines land without a poll.
-      // A line the poll already drew is skipped, so the exchange is never shown twice.
-      const fresh = (out && Array.isArray(out.replies) ? out.replies : []).filter(m => m && !(roomState && roomState.ids && roomState.ids.has(m.id)));
+      // The server saves the message and says what answers it next. Each answer is then asked for in
+      // turn, so the lines land one at a time. A line the poll already drew is skipped, never shown twice.
+      const replyLines = [];
+      try {
+        let step = out && out.next;
+        for (let i = 0; step && i < 10; i++) {
+          const got = await apiRaw(`/api/rooms/${encodeURIComponent(room.id)}/replies`, { method: 'POST', body: JSON.stringify({ next: step }) });
+          replyLines.push(...(got.messages || []));
+          step = got.next;
+        }
+      } catch { /* replies are optional: the member's message is already posted */ }
+      const fresh = replyLines.filter(m => m && !(roomState && roomState.ids && roomState.ids.has(m.id)));
       if (log2 && fresh.length) {
         log2.insertAdjacentHTML('beforeend', fresh.map(msgBubble).join(''));
         log2.scrollTop = log2.scrollHeight;

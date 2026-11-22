@@ -6,9 +6,11 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node --test test/match.test.js test/demo.test.js test/ai.test.js test/api.test.js",
+    "test": "node --test test/match.test.js test/demo.test.js test/ai.test.js test/api.test.js test/auth.test.js",
     "lint": "node bin/lint.js",
-    "db:check": "node bin/db-check.js"
+    "db:check": "node bin/db-check.js",
+    "ai:check": "node bin/ai-check.js",
+    "ai:models": "node bin/ai-models.js"
   },
   "engines": {
     "node": ">=18"

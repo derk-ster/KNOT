@@ -53,6 +53,21 @@ async function signup(j, { email, name, password = 'hunter2abc', interests } = {
   return r.json();
 }
 
+// Plays the browser's side of the answer loop: each step the server hands back is asked for in turn,
+// until it hands back none. Returns every line written, in order.
+async function drain(roomId, j, next) {
+  const lines = [];
+  for (let i = 0; next && i < 10; i++) {
+    const r = await post(`/api/rooms/${roomId}/replies`, { next }, j);
+    assert.equal(r.status, 200);
+    const out = await r.json();
+    lines.push(...out.messages);
+    next = out.next;
+  }
+  assert.equal(next, null, 'the answer loop finishes');
+  return lines;
+}
+
 test('session: anonymous identity via HttpOnly cookie, name set via profile', async () => {
   const j = jar();
   const s1 = await (await post('/api/session', { legacyClientId: 'legacy-abc' }, j)).json();
@@ -156,7 +171,9 @@ test('demo profiles answer in a sandbox group, always tagged demo', async () => 
   const { room } = await (await post('/api/rooms', { requestId: 'req-bot', title: 'Chess night', goal: 'Start a chess club in Plano.', memberIds: ['kai-nakamura', 'maya-okafor'] }, j)).json();
   const r = await post(`/api/rooms/${room.id}/messages`, { text: 'Hi everyone, when should we meet?' }, j);
   assert.equal(r.status, 201);
-  const { replies } = await r.json();
+  const sent = await r.json();
+  assert.ok(sent.next, 'the send returns the first answer step instead of waiting for the replies');
+  const replies = await drain(room.id, j, sent.next);
   // The two demo profiles answer one after the other and then the first comes back, so the room is
   // a conversation between them, and the last line hands it back to the member.
   assert.equal(replies.length, 3, 'two profiles answer each other, then one of them hands it back');
@@ -171,7 +188,7 @@ test('demo profiles answer in a sandbox group, always tagged demo', async () => 
   const list = (await (await get(`/api/rooms/${room.id}/messages`, j)).json()).messages;
   assert.ok(replies.every(b => list.some(m => m.id === b.id && m.kind === 'demo')), 'every demo line is persisted with its tag');
   const r2 = await post(`/api/rooms/${room.id}/messages`, { text: 'I can bring a board.' }, j);
-  const { replies: second } = await r2.json();
+  const second = await drain(room.id, j, (await r2.json()).next);
   assert.equal(second.length, 3, 'the next message gets its own exchange');
   assert.notEqual(second[0].authorName, second[1].authorName);
 });
@@ -181,7 +198,8 @@ test('demo profiles talk to each other in a short burst, then the room waits for
   await post('/api/session', {}, j);
   const ids = ['maya-okafor', 'kai-nakamura', 'priya-raman', 'hugo-tanaka', 'esther-cole'];
   const { room } = await (await post('/api/rooms', { requestId: 'req-burst', title: 'Burst lab', goal: 'Make a short film in Plano.', memberIds: ids }, j)).json();
-  const { replies } = await (await post(`/api/rooms/${room.id}/messages`, { text: 'I can edit the film. Who is in?' }, j)).json();
+  const sent = await (await post(`/api/rooms/${room.id}/messages`, { text: 'I can edit the film. Who is in?' }, j)).json();
+  const replies = await drain(room.id, j, sent.next);
   assert.equal(replies.length, 4, 'the exchange is capped at four turns, so it always leaves room for the member');
   assert.ok(new Set(replies.map(r => r.authorName)).size >= 3, 'several profiles speak, so they are talking to each other');
   assert.match(replies[replies.length - 1].text, /over to you|what do you|does that work for you|what do you think/i, 'the exchange ends on the member, not between the profiles');
@@ -484,7 +502,7 @@ test('room settings: AI stays off by default and can switch to on-demand, never 
   const asked = await askOn.json();
   assert.equal(asked.message.text, 'who can edit?', 'the question posts as a plain member message');
   assert.equal(asked.message.kind, 'user', 'the client cannot make its own message an assistant line');
-  const answer = (asked.replies || []).find(m => m.kind === 'assistant');
+  const answer = (await drain(room.id, j, asked.next)).find(m => m.kind === 'assistant');
   assert.ok(answer, 'asking KNOT AI always gets an answer back in the same response');
   assert.equal(answer.authorName, 'KNOT AI');
   assert.ok(answer.text && answer.text.length > 20, 'the answer is a real sentence, not a placeholder');
@@ -493,7 +511,7 @@ test('room settings: AI stays off by default and can switch to on-demand, never 
   assert.equal(after.filter(m => m.kind === 'assistant').length, 1, 'one question gets exactly one answer');
   // A second question is answered differently: the helper does not hand back the line it just used.
   const again = await (await post(`/api/rooms/${room.id}/messages`, { text: 'when can we meet?', askAi: true }, j)).json();
-  const second = (again.replies || []).find(m => m.kind === 'assistant');
+  const second = (await drain(room.id, j, again.next)).find(m => m.kind === 'assistant');
   assert.ok(second && second.text !== answer.text, 'the second answer is not the first one again');
   // a member (not a moderator) cannot change settings
   const member = jar();
@@ -704,3 +722,26 @@ test('AI Finder: guests get no real member profiles, signed-in members do', asyn
     for (const p of ['../server.js', '../lib/store.js']) delete require.cache[require.resolve(p)];
   }
 });
+
+test('messages after a timestamp: inclusive cursor, new lines only; malformed answer steps are refused', async () => {
+  const j = jar();
+  await post('/api/session', {}, j);
+  const { room } = await (await post('/api/rooms', { requestId: 'req-cursor', title: 'Cursor lab', goal: 'Check the poll.', memberIds: [] }, j)).json();
+  const first = await (await post(`/api/rooms/${room.id}/messages`, { text: 'first line' }, j)).json();
+  const ts1 = first.message.ts;
+  const second = await (await post(`/api/rooms/${room.id}/messages`, { text: 'second line' }, j)).json();
+  const since1 = (await (await get(`/api/rooms/${room.id}/messages?after=${encodeURIComponent(ts1)}`, j)).json()).messages;
+  assert.ok(since1.some(m => m.id === first.message.id), 'the boundary message is included, so nothing is missed');
+  assert.ok(since1.some(m => m.id === second.message.id));
+  const since2 = (await (await get(`/api/rooms/${room.id}/messages?after=${encodeURIComponent(second.message.ts)}`, j)).json()).messages;
+  assert.ok(since2.every(m => m.id !== first.message.id), 'older lines are not sent again');
+  assert.ok(since1.every(m => typeof m.you === 'boolean'), 'each line says whether it is the viewer own');
+  assert.ok(since1.find(m => m.id === first.message.id).you === true, 'the sender sees their own line as theirs');
+  const bad = await post(`/api/rooms/${room.id}/replies`, { next: { kind: 'shout' } }, j);
+  assert.equal(bad.status, 400, 'an unknown step kind is refused');
+  const badTurn = await post(`/api/rooms/${room.id}/replies`, { next: { kind: 'demo', turn: 9, of: 2 } }, j);
+  assert.equal(badTurn.status, 400, 'a turn outside its burst is refused');
+  const notAMember = await post(`/api/rooms/${room.id}/replies`, { next: { kind: 'ai' } }, jar());
+  assert.equal(notAMember.status, 403, 'a stranger cannot make the room answer');
+});
+
